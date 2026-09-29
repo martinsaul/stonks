@@ -66,7 +66,27 @@ virtual.
 - Margin interest and borrow fees accrue per game day. Real-time timers
   (weekly claim, monthly reset, cooldowns) run in real time.
 
+## Price model
+
+- **Strategies set returns, not price levels.** Each tick:
+  `new_price = last_price × (1 + curve_pct[t])`, then player orders act on the
+  book. The curve is pre-computed from the company's strategy plus events.
+- **Synthetic order book.** NPC market makers quote bid/ask depth around the
+  **current** price (no hidden anchor). Player orders consume depth, causing
+  real slippage; player-vs-player orders match first.
+- **No rails.** Player-driven moves are permanent; nothing reverts price to a
+  "fair value". Shake-outs, dumps and short squeezes emerge from player behavior.
+- **Fundamentals (v1):** shares outstanding, quarterly EPS
+  (`EPS_prev × (1 + strategy growth + noise)`), consensus estimate, market cap,
+  P/E, dividend yield. Earnings calls resolve actual vs. estimate (beat/miss),
+  combined with an outcome pattern (uptrend, reversal, downtrend, stagnancy…).
+- **Later:** NPC trader archetypes as plug-ins trading through the same book
+  (momentum/RSI/MACD bots, mean-reversion bots, copycats).
+
 ## Design principles
+
+- **Keep it manageable.** We're not NYSE. Add depth incrementally through
+  pluggable pieces rather than a complex core.
 
 - **No pay-to-win.** Monetization is deferred. Anything bought with real money
   must never affect net worth, trading, or leaderboard eligibility.
@@ -172,7 +192,6 @@ r = resets performed while in debt within the trailing 180 days
 ## Open topics
 
 - Cross-region accounts and leaderboards (when EMEA/APAC launch)
-- Price impact model (synthetic order book vs impact formula)
 - Margin: max leverage, maintenance margin, liquidation, short borrow fees
 - Company bankruptcy and replacement
 - Order types (market, limit, stop, stop-limit, trailing stop, bracket/OCO)
