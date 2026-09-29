@@ -275,6 +275,34 @@ Level k (k >= 1): costs $1M × 2^(k−1), raises starting cash to $5k + k × $1k
 ### Time in force
 DAY (expires at session end), GTC (90-game-day cap), IOC.
 
+### Execution model (mimics a real exchange)
+
+1. **Intake queue.** A submitted order is validated and queued immediately
+   ("Queued #n"). One market-wide FIFO queue with a simulated processing time
+   `p` per order (default 10 ms, admin-tunable):
+   `ready = max(arrival, previous order's ready) + p`. Deterministic (no dependence
+   on server load), replayable, and raw client speed gains nothing.
+2. **Execution at ticks.** At each 5-second tick, orders whose `ready` time is at
+   or before the tick execute in queue order; later ones wait for the next tick.
+3. **Price-time priority order book.** Each price level is a FIFO queue. Better
+   prices always go first (higher bids, lower asks); equal prices go by time.
+4. **Marketable orders trade at the resting price** (price improvement): a buy
+   limit 5.50 against an ask at 5.40 fills at 5.40. The limit is only a cap.
+5. **Nothing is guaranteed to fill.** If orders ahead move the price past a limit,
+   the unfilled part **rests in the book** at its limit, visible in depth, keeping
+   time priority, and fills on a later tick if the price returns, against NPC
+   flow, market makers or other players. Partial fills keep their remainder live.
+6. **Market orders never wait:** they fill what they can at the tick and cancel
+   the rest.
+7. **Stops** are checked every tick against the last trade and join the intake
+   queue when triggered.
+8. Buying power and margin are re-checked at execution; prices move while an
+   order waits.
+
+The live book is in memory (the engine). Postgres records every order and fill.
+The book is included in world snapshots, and player inputs since the last
+snapshot are logged and replayed on restart, so no order is lost.
+
 ### Rules
 - Stops trigger on **last traded price**.
 - Stops can **gap through** their trigger and fill at the gapped price.
