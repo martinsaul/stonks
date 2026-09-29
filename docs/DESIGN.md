@@ -101,6 +101,26 @@ about them is guaranteed: count, timing, size and behavior are all randomized.
   more in slippage than it earns on average.
 - Pure order flow through the same book; no persistent positions.
 
+## Historical data
+
+- At world creation, **simulate** (not statically generate) ~2 game-years
+  (~500 game days) per company by running the real engine at full speed:
+  order books, NPC market makers, background NPC order flow, virtual traders,
+  strategies, events, earnings, splits and dividends. Volume and volatility are
+  emergent, exactly as live.
+- **Background NPC order flow** also runs live, so volume exists even with few
+  players.
+- New IPOs have history only from their listing date.
+- Deterministic from a seed (reproducible worlds for testing).
+
+| Resolution      | Retention                |
+|-----------------|--------------------------|
+| 5-second ticks  | 10 game days             |
+| 1-minute candles| 90 game days             |
+| Daily candles   | forever                  |
+
+Chart ranges: 1D, 5D, 1M, 6M, YTD, 1Y, 5Y, Max.
+
 ## Design principles
 
 - **Keep it manageable.** We're not NYSE. Add depth incrementally through
@@ -366,4 +386,3 @@ significant for large players.
 
 - Cross-region accounts and leaderboards (when EMEA/APAC launch)
 - Additional money sinks (candidates: retire/prestige, IPO sponsorship, paid intel)
-- Historical data generation
