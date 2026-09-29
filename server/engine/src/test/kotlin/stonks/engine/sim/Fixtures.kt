@@ -10,8 +10,8 @@ import stonks.engine.strategy.StrategyType
 import java.time.Instant
 
 object Fixtures {
-    fun company(type: StrategyType = StrategyType.STEADY_GROWTH, price: Long = 10_000) = Company(
-        ticker = "TEST",
+    fun company(type: StrategyType = StrategyType.STEADY_GROWTH, price: Long = 10_000, ticker: String = "TEST") = Company(
+        ticker = ticker,
         name = "Test Corp",
         sector = Sector.TECH,
         sharesOutstanding = 1_000_000_000,

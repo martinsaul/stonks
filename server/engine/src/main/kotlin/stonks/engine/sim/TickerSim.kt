@@ -19,6 +19,7 @@ import stonks.engine.snapshot.readNullableLong
 import stonks.engine.snapshot.writeList
 import stonks.engine.snapshot.writeNullableLong
 import stonks.engine.strategy.StrategyEngine
+import stonks.engine.trading.PlayerOrders
 import java.io.DataInputStream
 import java.io.DataOutputStream
 import kotlin.math.exp
@@ -56,6 +57,11 @@ class TickerSim(
     val book = OrderBook()
     val strategy = StrategyEngine(company.initialStrategy, Rng(Rng.derive(seed, 1)))
     val candles = CandleAggregator(company.ticker, config.retention)
+    val playerOrders = PlayerOrders(company.ticker, book)
+
+    /** Index of the current (or next) session: the game day. */
+    var day = 0
+        private set
 
     /** Reference price in cents (fractional; the book quotes whole cents). */
     var reference: Double = company.initialPrice.toDouble()
@@ -91,6 +97,11 @@ class TickerSim(
         private set
 
     val isOpen: Boolean get() = session != null
+
+    /** Sets the game day (for snapshots that predate day tracking). */
+    internal fun alignDay(day: Int) {
+        this.day = day
+    }
     private val regimeDrift: Double get() = regime.driftAdd * company.marketBeta
     val marketCap: Double get() = reference / 100.0 * company.sharesOutstanding
 
@@ -106,9 +117,10 @@ class TickerSim(
     fun cancel(orderId: Long): Order? =
         book.cancel(orderId) ?: pending.firstOrNull { it.id == orderId }?.also { pending.remove(it) }
 
-    fun beginSession(session: Session, factors: SessionFactors, regime: MarketRegime, gapDays: Double): List<Fill> {
+    fun beginSession(session: Session, factors: SessionFactors, regime: MarketRegime, gapDays: Double, day: Int = this.day): List<Fill> {
         check(this.session == null) { "session already open" }
         this.session = session
+        this.day = day
         this.factors = factors
         this.regime = regime
         tick = 0
@@ -131,12 +143,15 @@ class TickerSim(
     }
 
     private fun runOpeningAuction(): List<Fill> {
-        if (pending.isEmpty()) return emptyList()
-        val queued = pending.toList()
+        computeLadder()
+        val players = playerOrders.auctionOrders(day) { side ->
+            if (side == Side.BUY) askPrices[0] else bidPrices.takeIf { bidLevels > 0 }?.get(0)
+        }
+        if (pending.isEmpty() && players.isEmpty()) return emptyList()
+        val queued = pending.toList() + players
         pending.clear()
         queued.forEachIndexed { i, o -> o.sequence = i.toLong() }
 
-        computeLadder()
         val makerOrders = ArrayList<Order>(bidLevels + config.makerLevels)
         for (i in 0 until bidLevels) {
             makerOrders += Order(nextNpcOrderId--, TraderId.MARKET_MAKER, Side.BUY, OrderType.LIMIT, bidSizes[i], bidPrices[i], TimeInForce.GTC)
@@ -151,11 +166,14 @@ class TickerSim(
             last = result.price
             recordStats(fills)
         }
-        // Leftovers continue into the continuous book (which may still cross them).
+        playerOrders.onFills(fills)
+        playerOrders.afterAuction(players)
+        // Raw leftovers (not managed as player legs) continue into the continuous book.
+        val managed = players.toHashSet()
         for (o in queued) {
+            if (o in managed) continue
             if (o.remaining > 0 && o.type == OrderType.LIMIT && o.tif != TimeInForce.IOC) {
-                val rest = Order(o.id, o.trader, o.side, o.type, o.remaining, o.limitPrice, o.tif)
-                book.submit(rest)
+                book.submit(Order(o.id, o.trader, o.side, o.type, o.remaining, o.limitPrice, o.tif))
             }
         }
         return fills
@@ -175,16 +193,22 @@ class TickerSim(
             company.sectorBeta * config.sectorFactorVol * f.sector.getValue(company.sector)[tick]) * sqrt(dt) * vm
         reference *= exp(idio + common)
 
-        // 2. Market makers re-quote around the reference.
+        // 2. Market makers re-quote around the reference (possibly filling resting player orders).
+        playerOrders.at(day, tick)
         val fills = ArrayList<Fill>()
-        fills += requote()
+        val quoteFills = requote()
+        fills += quoteFills
+        playerOrders.onFills(quoteFills)
         val bidBefore = book.bestBid
         val askBefore = book.bestAsk
 
-        // 3. Queued external orders, then background flow.
+        // 3. Player orders due this tick (settled as they fill), raw orders, then background flow.
+        playerOrders.execute(day, tick, fills)
         for (o in pending) fills += book.submit(o)
         pending.clear()
+        val bgStart = fills.size
         backgroundFlow(fills)
+        playerOrders.onFills(fills.subList(bgStart, fills.size))
 
         // 4. Carry trading displacement into the reference permanently: the reference
         //    moves by however far the consumed side's touch moved. A sweep therefore
@@ -199,6 +223,7 @@ class TickerSim(
 
         val time = s.tickTime(tick)
         candles.onTick(time, s.open, fills, last)
+        playerOrders.afterTick(day, tick, last, fills.sumOf { it.quantity })
         val report = TickReport(company.ticker, tick, fills, last, book.bestBid, book.bestAsk)
         tick++
         return report
@@ -230,6 +255,8 @@ class TickerSim(
 
     fun endSession() {
         checkNotNull(session) { "market closed" }
+        playerOrders.endSession(day)
+        day++
         previousClose = last
         book.clearMakerLadders()
         book.cancelWhere { it.tif == TimeInForce.DAY }
@@ -296,9 +323,11 @@ class TickerSim(
         out.writeLong(nextNpcOrderId)
         out.writeList(book.restingOrders().sortedBy { it.sequence }) { writeOrder(it) }
         out.writeList(pending) { writeOrder(it) }
+        out.writeInt(day)
+        playerOrders.writeTo(out)
     }
 
-    internal fun restore(input: DataInputStream) {
+    internal fun restore(input: DataInputStream, version: Int) {
         rng = Rng.restore(input.readLong())
         strategy.restore(input)
         reference = input.readDouble()
@@ -308,12 +337,16 @@ class TickerSim(
         input.readList { readOrder() }.forEach { book.restoreResting(it) }
         pending.clear()
         pending += input.readList { readOrder() }
+        if (version >= 2) {
+            day = input.readInt()
+            playerOrders.readFrom(input)
+        }
     }
 
     companion object {
         /** Reads a ticker written by [writeTo]. */
-        fun readFrom(input: DataInputStream, config: MarketConfig): TickerSim =
-            TickerSim(Company.readFrom(input), config, seed = 0).also { it.restore(input) }
+        fun readFrom(input: DataInputStream, config: MarketConfig, version: Int): TickerSim =
+            TickerSim(Company.readFrom(input), config, seed = 0).also { it.restore(input, version) }
 
         private fun DataOutputStream.writeOrder(o: Order) {
             writeLong(o.id)

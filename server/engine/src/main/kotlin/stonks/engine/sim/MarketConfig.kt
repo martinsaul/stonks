@@ -28,6 +28,10 @@ data class MarketConfig(
     /** Share of a game day's variance realized while the market is closed. */
     val gapVarianceDays: Double = 0.25,
     val retention: CandleRetention = CandleRetention(),
+    /** Central bank (benchmark) rate, annualized; margin loans cost this plus the plan spread. */
+    val benchmarkRate: Double = 0.04,
+    /** Shares lendable for shorting, as a fraction of shares outstanding. */
+    val borrowPoolFraction: Double = 0.20,
 )
 
 /** How many candles of each resolution to keep in memory (0 = none; use a sink). */
