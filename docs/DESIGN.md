@@ -469,6 +469,27 @@ significant for large players.
 - **Sadim's Hands** — bought at the top, sold at the bottom.
 - Return-% milestones.
 
+## Build plan
+
+Repository layout: `docs/`, `api/` (shared schema → Kotlin + TS types),
+`server/` (Kotlin: `engine`, `cli`, later `app`), `web/` (React + TS),
+`docker-compose.yml` (Postgres + TimescaleDB).
+
+1. **Engine core** ✅ — clock/sessions, strategies & regimes, order book with
+   market makers and background flow, market/limit matching, opening auction,
+   candles, deterministic parallel backfill, `stonks-sim` CLI.
+2. **Server & persistence** — Ktor, Postgres event log, candle storage, WebSocket
+   price feed, dummy OTP auth, accounts.
+3. **Web client (read-only)** — home, quote page with chart + depth, screener.
+4. **Trading** — all order types, portfolio, commissions/plans, margin &
+   liquidation, shorts & borrow fees.
+5. **Living market** — events & rumors, earnings & fundamentals, corporate
+   actions, company lifecycle & IPOs, news feed, copycats/inversecats.
+6. **Player economy** — claims, resets & cooldowns, bankruptcy, badges & alias
+   trap, starting-cash upgrades, bonds, leaderboards, achievements.
+7. **Admin console** — game master tools, player review & rollback, economy
+   dashboard.
+
 ## Open topics
 
 - Cross-region accounts and leaderboards (when EMEA/APAC launch)

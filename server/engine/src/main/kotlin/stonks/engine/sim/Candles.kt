@@ -1,0 +1,86 @@
+package stonks.engine.sim
+
+import stonks.engine.book.Fill
+import stonks.engine.core.Cents
+import java.time.Instant
+
+data class Candle(
+    val time: Instant,
+    val open: Cents,
+    val high: Cents,
+    val low: Cents,
+    val close: Cents,
+    val volume: Long,
+)
+
+/** A bounded, append-only candle series with one in-progress bar. */
+class CandleSeries(private val maxSize: Int) {
+    private val closed = ArrayDeque<Candle>()
+    private var bucket: Long = Long.MIN_VALUE
+    private var time: Instant = Instant.EPOCH
+    private var open = 0L
+    private var high = 0L
+    private var low = 0L
+    private var close = 0L
+    private var volume = 0L
+
+    val candles: List<Candle> get() = closed
+    val current: Candle? get() = if (bucket == Long.MIN_VALUE) null else Candle(time, open, high, low, close, volume)
+
+    fun update(bucketKey: Long, bucketTime: Instant, price: Cents, qty: Long) {
+        if (bucketKey != bucket) {
+            flush()
+            bucket = bucketKey
+            time = bucketTime
+            open = price; high = price; low = price
+            volume = 0
+        }
+        if (price > high) high = price
+        if (price < low) low = price
+        close = price
+        volume += qty
+    }
+
+    fun flush() {
+        if (bucket == Long.MIN_VALUE) return
+        closed.addLast(Candle(time, open, high, low, close, volume))
+        if (closed.size > maxSize) closed.removeFirst()
+        bucket = Long.MIN_VALUE
+    }
+}
+
+/** Aggregates trades into 5-second, 1-minute and daily (per session) candles. */
+class CandleAggregator(retention: CandleRetention) {
+    val ticks = CandleSeries(retention.ticks)
+    val minutes = CandleSeries(retention.minutes)
+    val days = CandleSeries(retention.days)
+    private var sessionKey = 0L
+
+    fun beginSession(open: Instant) {
+        sessionKey = open.epochSecond
+    }
+
+    /** Records one tick. With no trades, the bar carries the last price and zero volume. */
+    fun onTick(time: Instant, sessionOpen: Instant, fills: List<Fill>, last: Cents) {
+        val sec = time.epochSecond
+        val minute = sec / 60
+        val minuteTime = Instant.ofEpochSecond(minute * 60)
+        if (fills.isEmpty()) {
+            record(sec, time, minute, minuteTime, sessionOpen, last, 0)
+        } else {
+            for (f in fills) record(sec, time, minute, minuteTime, sessionOpen, f.price, f.quantity)
+        }
+        ticks.flush()
+    }
+
+    private fun record(sec: Long, time: Instant, minute: Long, minuteTime: Instant, sessionOpen: Instant, price: Cents, qty: Long) {
+        ticks.update(sec, time, price, qty)
+        minutes.update(minute, minuteTime, price, qty)
+        days.update(sessionKey, sessionOpen, price, qty)
+    }
+
+    fun endSession() {
+        minutes.flush()
+        days.flush()
+    }
+}

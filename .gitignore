@@ -1,0 +1,16 @@
+# Gradle / Kotlin
+.gradle/
+build/
+.kotlin/
+*.class
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# Simulation output
+backfill-out/
+
+# OS
+.DS_Store
