@@ -1,0 +1,43 @@
+# Local / home-lab deployment: TimescaleDB + the Stonks server.
+#
+#   cp .env.example .env    # then set STONKS_OTP_PEPPER and POSTGRES_PASSWORD
+#   docker compose up -d --build
+#
+# The first start simulates ~2 game-years of market history (a minute or two).
+
+services:
+  db:
+    image: timescale/timescaledb:latest-pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: stonks
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: stonks
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U stonks -d stonks"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  server:
+    build: ./server
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      STONKS_DB_URL: jdbc:postgresql://db:5432/stonks
+      STONKS_DB_USER: stonks
+      STONKS_DB_PASSWORD: ${POSTGRES_PASSWORD}
+      STONKS_OTP_PEPPER: ${STONKS_OTP_PEPPER:?set STONKS_OTP_PEPPER in .env}
+      STONKS_WORLD_SEED: ${STONKS_WORLD_SEED:-}
+      STONKS_DEV_MODE: ${STONKS_DEV_MODE:-false}
+      STONKS_TRUST_PROXY: ${STONKS_TRUST_PROXY:-false}
+      STONKS_CORS_ORIGINS: ${STONKS_CORS_ORIGINS:-}
+    ports:
+      - "${STONKS_HTTP_PORT:-8080}:8080"
+
+volumes:
+  db-data:

@@ -1,0 +1,245 @@
+openapi: 3.1.0
+info:
+  title: Stonks API
+  version: "1"
+  description: |
+    Stock-market game API. Prices are integer cents. Every operation except sign-in and
+    /healthz requires STONKS-V1 request signing; see docs/API.md.
+servers:
+  - url: http://localhost:8080
+security:
+  - stonksSignature: []
+paths:
+  /healthz:
+    get:
+      security: []
+      responses:
+        "200": { description: OK }
+  /api/v1/auth/otp/request:
+    post:
+      security: []
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/OtpRequest" } } }
+      responses:
+        "202": { description: Code sent, content: { application/json: { schema: { $ref: "#/components/schemas/OtpRequested" } } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
+  /api/v1/auth/otp/verify:
+    post:
+      security: []
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/OtpVerify" } } }
+      responses:
+        "200": { description: Signed in, content: { application/json: { schema: { $ref: "#/components/schemas/LoginResponse" } } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
+  /api/v1/auth/logout:
+    post:
+      responses:
+        "204": { description: Session revoked }
+        "401": { $ref: "#/components/responses/Error" }
+  /api/v1/me:
+    get:
+      responses:
+        "200": { description: Account, content: { application/json: { schema: { $ref: "#/components/schemas/MeResponse" } } } }
+        "401": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
+  /api/v1/market:
+    get:
+      responses:
+        "200": { description: Market summary, content: { application/json: { schema: { $ref: "#/components/schemas/MarketResponse" } } } }
+        "401": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
+  /api/v1/quotes/{ticker}:
+    get:
+      parameters:
+        - { name: ticker, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Quote detail, content: { application/json: { schema: { $ref: "#/components/schemas/QuoteResponse" } } } }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/quotes/{ticker}/candles:
+    get:
+      parameters:
+        - { name: ticker, in: path, required: true, schema: { type: string } }
+        - { name: res, in: query, schema: { type: string, enum: ["5s", "1m", "1d"], default: "1d" } }
+        - { name: from, in: query, description: ISO-8601 or epoch ms, schema: { type: string } }
+        - { name: to, in: query, description: ISO-8601 or epoch ms, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 2000, default: 500 } }
+      responses:
+        "200": { description: Candles, content: { application/json: { schema: { $ref: "#/components/schemas/CandlesResponse" } } } }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/ws:
+    get:
+      summary: WebSocket price feed (signed via query parameters; see docs/API.md)
+      security: []
+      parameters:
+        - { name: session, in: query, required: true, schema: { type: string } }
+        - { name: ts, in: query, required: true, schema: { type: integer, format: int64 } }
+        - { name: nonce, in: query, required: true, schema: { type: string } }
+        - { name: sig, in: query, required: true, schema: { type: string } }
+      responses:
+        "101": { description: Switching protocols }
+        "401": { $ref: "#/components/responses/Error" }
+components:
+  securitySchemes:
+    stonksSignature:
+      type: apiKey
+      in: header
+      name: X-Stonks-Signature
+      description: |
+        STONKS-V1: X-Stonks-Session, X-Stonks-Timestamp, X-Stonks-Nonce and X-Stonks-Signature
+        (ECDSA P-256 over the canonical request). See docs/API.md.
+  responses:
+    Error:
+      description: Error
+      content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } }
+  schemas:
+    ErrorBody:
+      type: object
+      required: [error, message]
+      properties: { error: { type: string }, message: { type: string } }
+    OtpRequest:
+      type: object
+      required: [email]
+      properties: { email: { type: string, format: email } }
+    OtpRequested:
+      type: object
+      required: [expiresAt]
+      properties:
+        expiresAt: { type: string, format: date-time }
+        devCode: { type: string, description: Only when the server runs in dev mode }
+    OtpVerify:
+      type: object
+      required: [email, code, publicKey]
+      properties:
+        email: { type: string }
+        code: { type: string, pattern: "^[0-9]{6}$" }
+        publicKey: { type: string, description: base64url SPKI DER ECDSA P-256 public key }
+    LoginResponse:
+      type: object
+      required: [sessionId, accountId, expiresAt, newAccount, serverTime]
+      properties:
+        sessionId: { type: string }
+        accountId: { type: integer, format: int64 }
+        expiresAt: { type: string, format: date-time }
+        newAccount: { type: boolean }
+        serverTime: { type: integer, format: int64 }
+    Badge:
+      type: object
+      required: [badge, title, description, count, lastAwardedAt]
+      properties:
+        badge: { type: string }
+        title: { type: string }
+        description: { type: string }
+        count: { type: integer }
+        lastAwardedAt: { type: string, format: date-time }
+    MeResponse:
+      type: object
+      required: [accountId, email, createdAt, badges]
+      properties:
+        accountId: { type: integer, format: int64 }
+        email: { type: string }
+        createdAt: { type: string, format: date-time }
+        badges: { type: array, items: { $ref: "#/components/schemas/Badge" } }
+    SessionInfo:
+      type: object
+      required: [state]
+      properties:
+        state: { type: string, enum: [OPEN, CLOSED] }
+        kind: { type: [string, "null"], enum: [WEEKDAY_A, WEEKDAY_B, WEEKEND, null] }
+        opensAt: { type: [string, "null"], format: date-time }
+        closesAt: { type: [string, "null"], format: date-time }
+        nextOpen: { type: [string, "null"], format: date-time }
+        nextKind: { type: [string, "null"] }
+    Quote:
+      type: object
+      required: [ticker, name, sector, last, volume, marketCap]
+      properties:
+        ticker: { type: string }
+        name: { type: string }
+        sector: { type: string }
+        last: { type: integer, format: int64 }
+        bid: { type: [integer, "null"], format: int64 }
+        ask: { type: [integer, "null"], format: int64 }
+        bidSize: { type: [integer, "null"], format: int64 }
+        askSize: { type: [integer, "null"], format: int64 }
+        prevClose: { type: [integer, "null"], format: int64 }
+        open: { type: [integer, "null"], format: int64 }
+        high: { type: [integer, "null"], format: int64 }
+        low: { type: [integer, "null"], format: int64 }
+        volume: { type: integer, format: int64 }
+        change: { type: [integer, "null"], format: int64 }
+        changePct: { type: [number, "null"] }
+        marketCap: { type: integer, format: int64, description: Dollars }
+    IndexQuote:
+      type: object
+      required: [name, value]
+      properties:
+        name: { type: string }
+        value: { type: number }
+        prevClose: { type: [number, "null"] }
+        change: { type: [number, "null"] }
+        changePct: { type: [number, "null"] }
+    DepthLevel:
+      type: object
+      required: [price, size]
+      properties: { price: { type: integer, format: int64 }, size: { type: integer, format: int64 } }
+    Depth:
+      type: object
+      required: [bids, asks]
+      properties:
+        bids: { type: array, items: { $ref: "#/components/schemas/DepthLevel" } }
+        asks: { type: array, items: { $ref: "#/components/schemas/DepthLevel" } }
+    Candle:
+      type: object
+      required: [time, open, high, low, close, volume]
+      properties:
+        time: { type: string, format: date-time }
+        open: { type: integer, format: int64 }
+        high: { type: integer, format: int64 }
+        low: { type: integer, format: int64 }
+        close: { type: integer, format: int64 }
+        volume: { type: integer, format: int64 }
+    MarketResponse:
+      type: object
+      required: [time, session, regime, index, quotes]
+      properties:
+        time: { type: string, format: date-time }
+        session: { $ref: "#/components/schemas/SessionInfo" }
+        regime: { type: string, enum: [NEUTRAL, BULL, BEAR, CRASH, BUBBLE] }
+        index: { $ref: "#/components/schemas/IndexQuote" }
+        quotes: { type: array, items: { $ref: "#/components/schemas/Quote" } }
+    QuoteResponse:
+      type: object
+      required: [time, session, quote, profile, stats, depth]
+      properties:
+        time: { type: string, format: date-time }
+        session: { $ref: "#/components/schemas/SessionInfo" }
+        quote: { $ref: "#/components/schemas/Quote" }
+        profile:
+          type: object
+          required: [ticker, name, sector, sharesOutstanding]
+          properties:
+            ticker: { type: string }
+            name: { type: string }
+            sector: { type: string }
+            sharesOutstanding: { type: integer, format: int64 }
+        stats:
+          type: object
+          properties:
+            high52w: { type: [integer, "null"], format: int64 }
+            low52w: { type: [integer, "null"], format: int64 }
+            avgVolume30d: { type: [integer, "null"], format: int64 }
+        depth: { $ref: "#/components/schemas/Depth" }
+    CandlesResponse:
+      type: object
+      required: [ticker, resolution, candles]
+      properties:
+        ticker: { type: string }
+        resolution: { type: string }
+        candles: { type: array, items: { $ref: "#/components/schemas/Candle" } }
+        live: { oneOf: [{ $ref: "#/components/schemas/Candle" }, { type: "null" }] }

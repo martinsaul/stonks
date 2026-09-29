@@ -1,3 +1,3 @@
 rootProject.name = "stonks-server"
 
-include("engine", "cli")
+include("engine", "cli", "app")

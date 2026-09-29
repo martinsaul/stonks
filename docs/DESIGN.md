@@ -406,6 +406,12 @@ r = resets performed while in debt within the trailing 180 days
   players aren't asked for a code every visit.
 - **Email delivery: dummy implementation with a TODO for now** (may use an
   in-house solution later).
+- **Every API call is signed and rate-limited** (docs/API.md). Sessions are bound to
+  a device ECDSA P-256 key (non-extractable in the browser). Each request carries a
+  timestamp, a single-use nonce and a signature over method, path, query and body,
+  so nothing can be replayed. Per-session, per-account and per-IP token buckets,
+  in-flight caps, and conflated WebSocket delivery keep custom clients from
+  degrading service for everyone else.
 - **Soft collusion detection** (repeat counterparties, shared device/IP, fresh
   accounts trading into thin books) feeds the manual Millionaires review; no
   automatic bans.
@@ -478,8 +484,10 @@ Repository layout: `docs/`, `api/` (shared schema → Kotlin + TS types),
 1. **Engine core** ✅ — clock/sessions, strategies & regimes, order book with
    market makers and background flow, market/limit matching, opening auction,
    candles, deterministic parallel backfill, `stonks-sim` CLI.
-2. **Server & persistence** — Ktor, Postgres event log, candle storage, WebSocket
-   price feed, dummy OTP auth, accounts.
+2. **Server & persistence** ✅ — Ktor, Postgres (TimescaleDB optional), event log,
+   world snapshots + catch-up, candle storage, signed-request auth with rate
+   limiting, WebSocket price feed, OTP sign-in (dummy delivery), alias trap,
+   Docker Compose deployment.
 3. **Web client (read-only)** — home, quote page with chart + depth, screener.
 4. **Trading** — all order types, portfolio, commissions/plans, margin &
    liquidation, shorts & borrow fees.
