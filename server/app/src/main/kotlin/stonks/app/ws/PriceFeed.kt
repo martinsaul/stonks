@@ -31,6 +31,8 @@ data class TickFrame(
     val index: IndexQuote,
     val quotes: List<Quote>,
     val depth: Map<String, Depth>,
+    /** The connected player's portfolio, if they have a trading account. */
+    val account: stonks.app.trading.PortfolioDto? = null,
 )
 
 @Serializable
@@ -113,6 +115,7 @@ class PriceFeed(private val maxSocketsPerAccount: Int) {
         index = s.index,
         quotes = if (c.quotes.isEmpty()) emptyList() else s.quotes.filter { it.ticker in c.quotes },
         depth = if (c.depth.isEmpty()) emptyMap() else s.depth.filterKeys { it in c.depth },
+        account = s.portfolios[c.principal.accountId],
     )
 
     companion object {

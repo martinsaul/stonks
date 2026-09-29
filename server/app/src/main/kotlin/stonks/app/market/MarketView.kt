@@ -56,6 +56,8 @@ data class MarketState(
     val depth: Map<String, Depth>,
     /** In-progress 1-minute candle per ticker (open session only). */
     val liveMinute: Map<String, CandleDto>,
+    /** Every trading account's portfolio, by account id. */
+    val portfolios: Map<Long, stonks.app.trading.PortfolioDto> = emptyMap(),
 ) {
     val quotesByTicker: Map<String, Quote> = quotes.associateBy { it.ticker }
 }

@@ -99,7 +99,42 @@ Slow clients skip frames rather than queueing them.
 | `GET`  | `/quotes/{ticker}` | Quote, profile, 52-week range, 30-day average volume and 10-level depth. |
 | `GET`  | `/quotes/{ticker}/candles` | `res` = `5s` \| `1m` \| `1d`; `from`/`to` (ISO or epoch ms); `limit` ≤ 2000 (default 500). Returns the newest candles in range, oldest first, plus the in-progress `live` candle. |
 
+| `GET`  | `/portfolio` | Cash, equity, buying power, margin, positions with P/L, open orders and recent notices. The first call opens the trading account with starting cash. |
+| `POST` | `/orders` | Place an order (see below). Returns `202` with the order ids and when it's expected to execute. |
+| `DELETE` | `/orders/{id}` | Cancel an open order, or a whole group (OCO/OTO/bracket) by group id. |
+| `GET`  | `/orders?status=open\|all` | Open orders, or the last 200 orders. |
+| `GET`  | `/fills?limit=100` | Your executions, newest first. |
+
 Unauthenticated: `GET /healthz`.
+
+### Placing orders
+
+```json
+{"ticker": "FOOF", "structure": "SINGLE",
+ "legs": [{"side": "BUY", "quantity": 10, "type": "LIMIT", "limitPrice": 2800, "timeInForce": "GTC"}]}
+```
+
+| `type` | Required fields |
+|--------|-----------------|
+| `MARKET` | none (`timeInForce` DAY or IOC) |
+| `LIMIT` | `limitPrice` |
+| `STOP` | `stopPrice` |
+| `STOP_LIMIT` | `stopPrice`, `limitPrice` |
+| `TRAILING_STOP` | `trailAmount` (cents) or `trailPercent` |
+| `TRAILING_STOP_LIMIT` | trailing distance plus `limitOffset` (cents beyond the stop) |
+| `TWAP` / `VWAP` | `durationMinutes` (1–600) |
+
+`structure`: `SINGLE` (one leg); `OCO` (two legs, and the first fill cancels the other);
+`OTO` (a parent and 1–2 children that activate after it fills); `BRACKET` (entry
+MARKET/LIMIT, a take-profit LIMIT and a stop-loss stop, where the exits are opposite
+the entry, activate after it fills, and cancel each other).
+
+Execution follows the exchange rules in [DESIGN.md](DESIGN.md#execution-model-mimics-a-real-exchange).
+An order enters a market-wide intake queue with 10 ms of simulated processing each and
+executes at the first tick after it's ready. Matching uses price-time priority with price
+improvement. Unfilled limits rest in the book. Buying power is checked again at
+execution. The WebSocket `tick` frame carries your `account` (the same shape as
+`/portfolio`), so live P/L and order status need no polling.
 
 ## Rate limits
 
@@ -125,8 +160,9 @@ budget returns `429` with `Retry-After` (seconds).
 
 | Status | `error` codes |
 |--------|---------------|
-| 400 | `bad_request`, `email_rejected`, `otp_rejected` |
+| 400 | `bad_request`, `email_rejected`, `otp_rejected`, `order_invalid`, `order_rejected` |
 | 401 | `auth_required`, `bad_timestamp`, `clock_skew`, `bad_nonce`, `session_invalid`, `bad_signature`, `replayed` |
 | 403 | `alias_refused` |
 | 404 | `not_found` |
 | 429 | `rate_limited`, `too_many_in_flight` |
+| 503 | `busy` |

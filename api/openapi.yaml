@@ -72,6 +72,39 @@ paths:
         "200": { description: Candles, content: { application/json: { schema: { $ref: "#/components/schemas/CandlesResponse" } } } }
         "400": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
+  /api/v1/portfolio:
+    get:
+      summary: The player's portfolio (opens the trading account with starting cash on first use)
+      responses:
+        "200": { description: Portfolio, content: { application/json: { schema: { $ref: "#/components/schemas/Portfolio" } } } }
+  /api/v1/orders:
+    get:
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [open, all], default: open } }
+      responses:
+        "200": { description: Orders, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/Order" } } } } }
+    post:
+      summary: Place an order (queued; executes at a future tick)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/PlaceOrderRequest" } } }
+      responses:
+        "202": { description: Queued, content: { application/json: { schema: { $ref: "#/components/schemas/PlaceOrderResponse" } } } }
+        "400": { $ref: "#/components/responses/Error" }
+  /api/v1/orders/{id}:
+    delete:
+      summary: Cancel an open order (or a whole order group)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        "204": { description: Cancelled }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/fills:
+    get:
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 500, default: 100 } }
+      responses:
+        "200": { description: Fills, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/Fill" } } } } }
   /api/v1/ws:
     get:
       summary: WebSocket price feed (signed via query parameters; see docs/API.md)
@@ -204,6 +237,110 @@ components:
         low: { type: integer, format: int64 }
         close: { type: integer, format: int64 }
         volume: { type: integer, format: int64 }
+    LegRequest:
+      type: object
+      required: [side, quantity, type]
+      properties:
+        side: { type: string, enum: [BUY, SELL] }
+        quantity: { type: integer, format: int64, minimum: 1 }
+        type: { type: string, enum: [MARKET, LIMIT, STOP, STOP_LIMIT, TRAILING_STOP, TRAILING_STOP_LIMIT, TWAP, VWAP] }
+        limitPrice: { type: [integer, "null"], format: int64 }
+        stopPrice: { type: [integer, "null"], format: int64 }
+        trailAmount: { type: [integer, "null"], format: int64 }
+        trailPercent: { type: [number, "null"] }
+        limitOffset: { type: [integer, "null"], format: int64 }
+        timeInForce: { type: string, enum: [DAY, GTC, IOC], default: DAY }
+        durationMinutes: { type: [integer, "null"], description: TWAP/VWAP execution window }
+    PlaceOrderRequest:
+      type: object
+      required: [ticker, legs]
+      properties:
+        ticker: { type: string }
+        structure: { type: string, enum: [SINGLE, OCO, OTO, BRACKET], default: SINGLE }
+        legs: { type: array, items: { $ref: "#/components/schemas/LegRequest" } }
+    PlaceOrderResponse:
+      type: object
+      required: [groupId, orderIds, status]
+      properties:
+        groupId: { type: integer, format: int64 }
+        orderIds: { type: array, items: { type: integer, format: int64 } }
+        status: { type: string }
+        executesAt: { type: [string, "null"], format: date-time }
+    Order:
+      type: object
+      required: [id, groupId, ticker, side, type, quantity, filled, status, liquidation, updatedAt]
+      properties:
+        id: { type: integer, format: int64 }
+        groupId: { type: integer, format: int64 }
+        ticker: { type: string }
+        side: { type: string }
+        type: { type: string }
+        quantity: { type: integer, format: int64 }
+        filled: { type: integer, format: int64 }
+        avgPrice: { type: [number, "null"] }
+        limitPrice: { type: [integer, "null"], format: int64 }
+        stopPrice: { type: [integer, "null"], format: int64 }
+        status: { type: string, enum: [WAITING, QUEUED, ARMED, WORKING, FILLED, CANCELLED, EXPIRED, REJECTED] }
+        reason: { type: [string, "null"] }
+        liquidation: { type: boolean }
+        updatedAt: { type: string, format: date-time }
+    Fill:
+      type: object
+      required: [id, orderId, ticker, side, quantity, price, commission, realized, maker, liquidation, at]
+      properties:
+        id: { type: string }
+        orderId: { type: integer, format: int64 }
+        ticker: { type: string }
+        side: { type: string }
+        quantity: { type: integer, format: int64 }
+        price: { type: integer, format: int64 }
+        commission: { type: integer, format: int64 }
+        realized: { type: integer, format: int64 }
+        maker: { type: boolean }
+        liquidation: { type: boolean }
+        at: { type: string, format: date-time }
+    Position:
+      type: object
+      required: [ticker, quantity, avgPrice, last, marketValue, unrealized, unrealizedPct]
+      properties:
+        ticker: { type: string }
+        quantity: { type: integer, format: int64, description: Negative for shorts }
+        avgPrice: { type: number, description: Cents }
+        last: { type: integer, format: int64 }
+        marketValue: { type: integer, format: int64 }
+        unrealized: { type: integer, format: int64 }
+        unrealizedPct: { type: number }
+        dayChange: { type: [integer, "null"], format: int64 }
+    Notice:
+      type: object
+      required: [seq, kind, text, at]
+      properties:
+        seq: { type: integer, format: int64 }
+        kind: { type: string }
+        text: { type: string }
+        at: { type: string, format: date-time }
+    Portfolio:
+      type: object
+      required: [accountId, plan, cash, equity, longValue, shortValue, availableEquity, buyingPower, marginDebt, maintenanceRequirement, initialMargin, maintenanceMargin, lifetimeRealized, commissionsPaid, interestPaid, positions, openOrders, notices]
+      properties:
+        accountId: { type: integer, format: int64 }
+        plan: { type: string, enum: [ROOKIE, TRADER, PRO, WHALE] }
+        cash: { type: integer, format: int64, description: Negative = margin loan }
+        equity: { type: integer, format: int64 }
+        longValue: { type: integer, format: int64 }
+        shortValue: { type: integer, format: int64 }
+        availableEquity: { type: integer, format: int64 }
+        buyingPower: { type: integer, format: int64 }
+        marginDebt: { type: integer, format: int64 }
+        maintenanceRequirement: { type: integer, format: int64 }
+        initialMargin: { type: number }
+        maintenanceMargin: { type: number }
+        lifetimeRealized: { type: integer, format: int64 }
+        commissionsPaid: { type: integer, format: int64 }
+        interestPaid: { type: integer, format: int64 }
+        positions: { type: array, items: { $ref: "#/components/schemas/Position" } }
+        openOrders: { type: array, items: { $ref: "#/components/schemas/Order" } }
+        notices: { type: array, items: { $ref: "#/components/schemas/Notice" } }
     MarketResponse:
       type: object
       required: [time, session, regime, index, quotes]

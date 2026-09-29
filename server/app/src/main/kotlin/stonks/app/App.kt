@@ -35,8 +35,9 @@ class App(
         config.otpPepper, config.devMode, clock,
     )
     val candles = CandleStore(db)
+    val trading = stonks.app.trading.TradingStore(db)
     val market = MarketRuntime(
-        WorldStore(db), candles, clock,
+        WorldStore(db), candles, trading, clock,
         seedOverride = config.worldSeed,
         backfillSessions = config.backfillSessions,
     )

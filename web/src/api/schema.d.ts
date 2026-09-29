@@ -312,6 +312,178 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/portfolio": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The player's portfolio (opens the trading account with starting cash on first use) */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Portfolio */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Portfolio"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/orders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    status?: "open" | "all";
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Orders */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Order"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        /** Place an order (queued; executes at a future tick) */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["PlaceOrderRequest"];
+                };
+            };
+            responses: {
+                /** @description Queued */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PlaceOrderResponse"];
+                    };
+                };
+                400: components["responses"]["Error"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/orders/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Cancel an open order (or a whole order group) */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: number;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Cancelled */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                404: components["responses"]["Error"];
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/fills": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    limit?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Fills */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Fill"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/ws": {
         parameters: {
             query?: never;
@@ -478,6 +650,153 @@ export interface components {
             close: number;
             /** Format: int64 */
             volume: number;
+        };
+        LegRequest: {
+            /** @enum {string} */
+            side: "BUY" | "SELL";
+            /** Format: int64 */
+            quantity: number;
+            /** @enum {string} */
+            type: "MARKET" | "LIMIT" | "STOP" | "STOP_LIMIT" | "TRAILING_STOP" | "TRAILING_STOP_LIMIT" | "TWAP" | "VWAP";
+            /** Format: int64 */
+            limitPrice?: number | null;
+            /** Format: int64 */
+            stopPrice?: number | null;
+            /** Format: int64 */
+            trailAmount?: number | null;
+            trailPercent?: number | null;
+            /** Format: int64 */
+            limitOffset?: number | null;
+            /**
+             * @default DAY
+             * @enum {string}
+             */
+            timeInForce: "DAY" | "GTC" | "IOC";
+            /** @description TWAP/VWAP execution window */
+            durationMinutes?: number | null;
+        };
+        PlaceOrderRequest: {
+            ticker: string;
+            /**
+             * @default SINGLE
+             * @enum {string}
+             */
+            structure: "SINGLE" | "OCO" | "OTO" | "BRACKET";
+            legs: components["schemas"]["LegRequest"][];
+        };
+        PlaceOrderResponse: {
+            /** Format: int64 */
+            groupId: number;
+            orderIds: number[];
+            status: string;
+            /** Format: date-time */
+            executesAt?: string | null;
+        };
+        Order: {
+            /** Format: int64 */
+            id: number;
+            /** Format: int64 */
+            groupId: number;
+            ticker: string;
+            side: string;
+            type: string;
+            /** Format: int64 */
+            quantity: number;
+            /** Format: int64 */
+            filled: number;
+            avgPrice?: number | null;
+            /** Format: int64 */
+            limitPrice?: number | null;
+            /** Format: int64 */
+            stopPrice?: number | null;
+            /** @enum {string} */
+            status: "WAITING" | "QUEUED" | "ARMED" | "WORKING" | "FILLED" | "CANCELLED" | "EXPIRED" | "REJECTED";
+            reason?: string | null;
+            liquidation: boolean;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        Fill: {
+            id: string;
+            /** Format: int64 */
+            orderId: number;
+            ticker: string;
+            side: string;
+            /** Format: int64 */
+            quantity: number;
+            /** Format: int64 */
+            price: number;
+            /** Format: int64 */
+            commission: number;
+            /** Format: int64 */
+            realized: number;
+            maker: boolean;
+            liquidation: boolean;
+            /** Format: date-time */
+            at: string;
+        };
+        Position: {
+            ticker: string;
+            /**
+             * Format: int64
+             * @description Negative for shorts
+             */
+            quantity: number;
+            /** @description Cents */
+            avgPrice: number;
+            /** Format: int64 */
+            last: number;
+            /** Format: int64 */
+            marketValue: number;
+            /** Format: int64 */
+            unrealized: number;
+            unrealizedPct: number;
+            /** Format: int64 */
+            dayChange?: number | null;
+        };
+        Notice: {
+            /** Format: int64 */
+            seq: number;
+            kind: string;
+            text: string;
+            /** Format: date-time */
+            at: string;
+        };
+        Portfolio: {
+            /** Format: int64 */
+            accountId: number;
+            /** @enum {string} */
+            plan: "ROOKIE" | "TRADER" | "PRO" | "WHALE";
+            /**
+             * Format: int64
+             * @description Negative = margin loan
+             */
+            cash: number;
+            /** Format: int64 */
+            equity: number;
+            /** Format: int64 */
+            longValue: number;
+            /** Format: int64 */
+            shortValue: number;
+            /** Format: int64 */
+            availableEquity: number;
+            /** Format: int64 */
+            buyingPower: number;
+            /** Format: int64 */
+            marginDebt: number;
+            /** Format: int64 */
+            maintenanceRequirement: number;
+            initialMargin: number;
+            maintenanceMargin: number;
+            /** Format: int64 */
+            lifetimeRealized: number;
+            /** Format: int64 */
+            commissionsPaid: number;
+            /** Format: int64 */
+            interestPaid: number;
+            positions: components["schemas"]["Position"][];
+            openOrders: components["schemas"]["Order"][];
+            notices: components["schemas"]["Notice"][];
         };
         MarketResponse: {
             /** Format: date-time */

@@ -129,6 +129,8 @@ fun Route.signedRoutes(app: App) {
             }
             call.respond(CandlesResponse(ticker, resName, rows, live))
         }
+
+        tradingRoutes(app)
     } }
 }
 

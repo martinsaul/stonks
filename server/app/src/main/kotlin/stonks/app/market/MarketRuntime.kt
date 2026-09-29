@@ -11,6 +11,9 @@ import stonks.engine.sim.CandleRetention
 import stonks.engine.sim.Market
 import stonks.engine.sim.MarketConfig
 import stonks.engine.sim.TickerSim
+import stonks.app.trading.Schedule
+import stonks.app.trading.TradingDesk
+import stonks.app.trading.TradingStore
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.DataInputStream
@@ -35,12 +38,17 @@ import java.util.concurrent.atomic.AtomicReference
 class MarketRuntime(
     private val worlds: WorldStore,
     private val candles: CandleStore,
+    private val trading: TradingStore,
     private val clock: Clock,
     private val schedule: MarketSchedule = MarketSchedule(),
     private val seedOverride: Long? = null,
     private val backfillSessions: Int = 500,
     private val config: MarketConfig = MarketConfig(retention = CandleRetention(0, 0, 0)),
+    orderProcessing: Duration = Duration.ofMillis(10),
 ) : AutoCloseable {
+    /** Player trading: intake, input log, replay, portfolio views. */
+    val desk = TradingDesk(trading, orderProcessing)
+    private var lastPortfolioPersist = Instant.EPOCH
     private val log = LoggerFactory.getLogger(MarketRuntime::class.java)
     private val writer = CandleWriter(candles, clock)
     private val pool = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors())
@@ -70,7 +78,10 @@ class MarketRuntime(
             createWorld(world?.seed ?: seedOverride ?: SecureRandom().nextLong(), world?.liveAt)
         }
         market.setCandleSink(writer)
+        desk.setEstimator(::estimate)
+        replay()
         catchUp(clock.instant())
+        desk.absorb(market.drainEvents(), clock.instant())
         publish(clock.instant())
         flusher.scheduleWithFixedDelay({ runCatching { writer.flush() }.onFailure { log.error("flush", it) } }, 1, 1, TimeUnit.SECONDS)
         flusher.scheduleWithFixedDelay({ runCatching { candles.sweepExpired(clock.instant()) } }, 1, 60, TimeUnit.MINUTES)
@@ -90,6 +101,60 @@ class MarketRuntime(
         writer.flush(bulk = true)
         saveSnapshot()
         log.info("World created in {}s", Duration.ofNanos(System.nanoTime() - started).seconds)
+    }
+
+    /**
+     * Re-applies logged player inputs made after the restored snapshot, each at the
+     * exact session and tick it was originally applied, so fills come out identical.
+     */
+    private fun replay() {
+        val inputs = trading.inputsAfter(market.lastInputSeq)
+        if (inputs.isEmpty()) return
+        for (i in inputs) {
+            advanceTo(i.applyDay, i.applyTick)
+            desk.applyLogged(market, i)
+            desk.absorb(market.drainEvents(), clock.instant())
+        }
+        log.info("Replayed {} player inputs", inputs.size)
+    }
+
+    private fun advanceTo(day: Int, tick: Int) {
+        while (true) {
+            val s = market.session
+            if (s == null) {
+                if (market.day == day && tick == TradingDesk.CLOSED) return
+                check(market.day <= day) { "input log is ahead of the market" }
+                market.beginSession(nextSession())
+            } else if (market.day == day && tick >= 0) {
+                market.fastForward(tick)
+                return
+            } else {
+                market.fastForward(s.ticks)
+                finishSession()
+            }
+            desk.absorb(market.drainEvents(), clock.instant())
+        }
+    }
+
+    /** Maps an order's intake-queue ready time to the tick that executes it. */
+    private fun scheduleOrder(ready: Instant): Schedule {
+        val s = market.session
+        if (s != null && ready.isBefore(s.close)) {
+            val ms = Duration.between(s.open, ready).toMillis()
+            val k = maxOf(market.tick, Math.ceilDiv(ms, MarketSchedule.TICK_SECONDS * 1000).toInt() - 1)
+            if (k < s.ticks) return Schedule(market.day, k, s.tickTime(k + 1))
+            return Schedule(market.day + 1, -1, null)
+        }
+        return Schedule(market.day, -1, null)
+    }
+
+    private fun estimate(day: Int, tick: Int): Instant? {
+        val s = market.session
+        return when {
+            s != null && day == market.day && tick >= 0 -> s.tickTime(tick + 1)
+            s != null -> schedule.nextSessionAfter(s.close).open
+            else -> nextSession().open
+        }
     }
 
     /** Runs every session that should already have happened by [now]. */
@@ -122,20 +187,24 @@ class MarketRuntime(
      * the simulation thread; exposed for tests.
      */
     fun pump(now: Instant): Instant {
+        var changed = desk.process(market, now, ::scheduleOrder)
         val s = market.session
         if (s == null) {
-            val next = nextSession()
-            if (now.isBefore(next.open)) return next.open
-            catchUp(now)
-            publish(now)
+            if (!now.isBefore(nextSession().open)) {
+                catchUp(now)
+                changed = true
+            }
         } else {
             val due = ticksDue(s, now)
             if (market.tick < due) {
                 while (market.tick < due) market.step()
                 if (market.tick >= s.ticks) finishSession()
-                publish(now)
+                changed = true
             }
         }
+        val events = market.drainEvents()
+        desk.absorb(events, now)
+        if (changed || events.isNotEmpty()) publish(now)
         val open = market.session ?: return nextSession().open
         return open.tickTime(market.tick + 1)
     }
@@ -149,8 +218,8 @@ class MarketRuntime(
             while (running) {
                 try {
                     val wake = pump(clock.instant())
-                    val sleep = Duration.between(clock.instant(), wake).toMillis().coerceIn(20, 1000)
-                    Thread.sleep(sleep)
+                    val sleep = Duration.between(clock.instant(), wake).toMillis().coerceIn(5, 1000)
+                    desk.awaitWork(sleep) // wakes early when a player command arrives
                 } catch (_: InterruptedException) {
                     break
                 } catch (e: Exception) {
@@ -167,6 +236,7 @@ class MarketRuntime(
         thread?.join(5000)
         flusher.shutdown()
         writer.flush()
+        desk.close()
         pool.shutdown()
     }
 
@@ -211,7 +281,12 @@ class MarketRuntime(
             .takeIf { it.size == tickers.size }?.let { 1000.0 * it.average() }
         val index = IndexQuote("STONKS 50", value, prev, prev?.let { value - it }, prev?.let { (value - it) / it * 100 })
 
-        val state = MarketState(now, session, market.regime.name, index, quotes, depth, liveMinute)
+        val portfolios = desk.portfolios(market)
+        if (Duration.between(lastPortfolioPersist, now) >= Duration.ofMinutes(1) || market.session == null) {
+            lastPortfolioPersist = now
+            desk.persistPortfolios(portfolios.values)
+        }
+        val state = MarketState(now, session, market.regime.name, index, quotes, depth, liveMinute, portfolios)
         published.set(state)
         for (l in listeners) {
             try { l(state) } catch (e: Exception) { log.warn("listener failed", e) }
