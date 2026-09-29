@@ -130,6 +130,32 @@ Level k (k >= 1): costs $1M × 2^(k−1), raises starting cash to $5k + k × $1k
 - Upgrades **survive monthly resets**.
 - **Bankruptcy (voluntary or forced) removes one level.**
 
+## Orders
+
+### Types (all at launch)
+| Type               | Behavior                                                         |
+|--------------------|------------------------------------------------------------------|
+| Market             | Fill now at best available prices                                |
+| Limit              | Fill at price or better                                          |
+| Stop               | Market order once trigger hit                                    |
+| Stop-limit         | Limit order once trigger hit                                     |
+| Trailing stop      | Trigger trails price by $ or %, only ratchets favorably          |
+| Trailing stop-limit| Trailing trigger that becomes a limit order                      |
+| Bracket            | Entry + take-profit + stop-loss; exits are OCO                   |
+| OCO                | Two orders; one filling cancels the other                        |
+| OTO                | Parent fill triggers child order(s)                              |
+| TWAP               | Server slices a parent order evenly over a time window           |
+| VWAP               | Server slices a parent order proportional to market volume       |
+
+### Time in force
+DAY (expires at session end), GTC (90-game-day cap), IOC.
+
+### Rules
+- Stops trigger on **last traded price**.
+- Stops can **gap through** their trigger and fill at the gapped price.
+- Orders placed while closed join the **opening auction**.
+- Validated against buying power/margin at submission and again at fill.
+
 ## Margin & liquidation
 
 | Plan    | Max leverage | Liquidation below (equity / position value) |
@@ -253,7 +279,6 @@ r = resets performed while in debt within the trailing 180 days
 ## Open topics
 
 - Cross-region accounts and leaderboards (when EMEA/APAC launch)
-- Order types (market, limit, stop, stop-limit, trailing stop, bracket/OCO)
 - Seasons
 - Auth / anti multi-accounting
 - Additional money sinks (candidates: retire/prestige, IPO sponsorship, paid intel)
