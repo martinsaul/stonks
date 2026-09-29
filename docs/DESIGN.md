@@ -303,6 +303,18 @@ feed as ordinary news.
 
 **No community goals** — they amount to sanctioned market manipulation.
 
+## Bond offerings
+
+Event-based, admin-issued. Meant to help low-volume players build a base; never
+significant for large players.
+
+- Subscription window of a few game days at a fixed price.
+- **Guaranteed return** at maturity (defaults: +8% / 1 month, +20% / 3 months).
+- **Per-player cap ~$5k** (tunable per offering).
+- **Locked** until maturity; not usable as margin collateral.
+- **Wiped on reset or bankruptcy.**
+- Count toward net worth at face value.
+
 ## Persistence
 
 - **Persistent world**, no scheduled wipes.
@@ -336,6 +348,5 @@ feed as ordinary news.
 
 - Cross-region accounts and leaderboards (when EMEA/APAC launch)
 - Additional money sinks (candidates: retire/prestige, IPO sponsorship, paid intel)
-- Bond offerings: parameters
 - Copycat virtual traders
 - Historical data generation
