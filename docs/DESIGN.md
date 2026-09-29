@@ -83,6 +83,24 @@ virtual.
 - **Later:** NPC trader archetypes as plug-ins trading through the same book
   (momentum/RSI/MACD bots, mean-reversion bots, copycats).
 
+## Virtual traders (copycats & inversecats)
+
+After a player's fill, a random crowd of virtual traders *may* react. Nothing
+about them is guaranteed: count, timing, size and behavior are all randomized.
+
+- **Copycats** trade in the same direction as the player.
+- **Inversecats** take the opposite side (sell or short into a buy; buy into a
+  sell).
+- Reaction chance rises with order size vs. average volume and with the stock's
+  **hype** (unusual volume/price movement), enabling emergent meme frenzies.
+- **Successful players attract more copycats.** Players with badges of shame
+  attract more inversecats.
+- Heavy-tailed crowd size, orders spread over the following ticks, sometimes
+  mirroring the player's exit as well.
+- Tuned so expected copied volume is < 1x the original: gaming the crowd costs
+  more in slippage than it earns on average.
+- Pure order flow through the same book; no persistent positions.
+
 ## Design principles
 
 - **Keep it manageable.** We're not NYSE. Add depth incrementally through
@@ -348,5 +366,4 @@ significant for large players.
 
 - Cross-region accounts and leaderboards (when EMEA/APAC launch)
 - Additional money sinks (candidates: retire/prestige, IPO sponsorship, paid intel)
-- Copycat virtual traders
 - Historical data generation
