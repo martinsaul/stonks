@@ -123,7 +123,7 @@ function mergeFrame(prev: TickFrame | undefined, next: TickFrame): TickFrame {
   if (!prev) return next;
   const quotes = new Map<string, Quote>(prev.quotes.map((q) => [q.ticker, q]));
   next.quotes.forEach((q) => quotes.set(q.ticker, q));
-  return { ...next, quotes: [...quotes.values()], depth: { ...prev.depth, ...next.depth } };
+  return { ...next, quotes: [...quotes.values()], depth: { ...prev.depth, ...next.depth }, account: next.account ?? prev.account };
 }
 
 export const feed = new MarketFeed();

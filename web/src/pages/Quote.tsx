@@ -6,8 +6,10 @@ import type { QuoteResponse } from "../api/types";
 import { Change } from "../components/Change";
 import { DepthBook } from "../components/DepthBook";
 import { Flash } from "../components/Flash";
+import { OpenOrders, TradeTicket } from "../components/TradeTicket";
+import { usePortfolio } from "../lib/portfolio";
 import { PriceChart } from "../components/PriceChart";
-import { compact, integer, price, SECTORS, timeET } from "../lib/format";
+import { compact, integer, money, price, SECTORS, timeET } from "../lib/format";
 import { useMarket } from "../lib/market";
 import { loadRange, RANGES, type Range, type Series } from "../lib/ranges";
 import { toggleWatch, useWatchlist } from "../lib/watchlist";
@@ -21,6 +23,7 @@ export function QuotePage() {
   const [kind, setKind] = useState<"candle" | "line">("candle");
   const [series, setSeries] = useState<Series>();
   const watch = useWatchlist();
+  const portfolio = usePortfolio();
 
   const live = useLiveQuotes([ticker], [ticker]);
   const frame = useFeedFrame();
@@ -86,13 +89,33 @@ export function QuotePage() {
             </div>
           </section>
 
-          <section className="card" aria-labelledby="ticket">
-            <div className="card-head"><h2 id="ticket">Trade {ticker}</h2></div>
-            <div className="card-body ticket-soon">Trading opens soon. Market, limit, stop and trailing orders are on their way.</div>
-          </section>
+          {portfolio && (() => {
+            const pos = portfolio.positions.find((x) => x.ticker === ticker);
+            const mine = portfolio.openOrders.filter((o) => o.ticker === ticker);
+            return (
+              <section className="card" aria-labelledby="mine">
+                <div className="card-head"><h2 id="mine">Your {ticker}</h2></div>
+                <div className="card-body">
+                  {pos ? (
+                    <dl className="stats">
+                      <div><dt>{pos.quantity < 0 ? "Short" : "Shares"}</dt><dd>{integer(Math.abs(pos.quantity))}</dd></div>
+                      <div><dt>Avg. cost</dt><dd>{price(Math.round(pos.avgPrice))}</dd></div>
+                      <div><dt>Market value</dt><dd>{money(Math.abs(pos.marketValue))}</dd></div>
+                      <div><dt>Unrealized P/L</dt><dd><Change cents={pos.unrealized} pct={pos.unrealizedPct} /></dd></div>
+                    </dl>
+                  ) : <p className="muted">You don't hold {ticker}.</p>}
+                  {mine.length > 0 && <><h3 className="subhead">Open orders</h3><OpenOrders orders={mine} showTicker={false} /></>}
+                </div>
+              </section>
+            );
+          })()}
         </div>
 
         <aside className="stack">
+          <section className="card" aria-labelledby="ticket">
+            <div className="card-head"><h2 id="ticket">Trade {ticker}</h2></div>
+            <div className="card-body"><TradeTicket ticker={ticker} quote={q} portfolio={portfolio} /></div>
+          </section>
           <section className="card" aria-labelledby="summary">
             <div className="card-head"><h2 id="summary">Summary</h2></div>
             <div className="card-body">

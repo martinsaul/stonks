@@ -122,6 +122,7 @@ button, input, select { font: inherit; color: inherit; }
 .narrow-only { display: none; }
 @media (max-width: 760px) {
   .topbar-inner { flex-wrap: wrap; height: auto; padding: 8px 16px; gap: 8px 12px; }
+  .nav { order: 9; flex-basis: 100%; }
   .search { order: 10; flex-basis: 100%; max-width: none; }
   .wide-only { display: none; }
   .narrow-only { display: inline; }
@@ -206,3 +207,29 @@ table.data th button { border: 0; background: none; font: inherit; color: inheri
 .badge { border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; background: var(--surface-2); }
 .badge strong { display: block; }
 .footer { max-width: 1280px; margin: 0 auto; padding: 0 16px 24px; color: var(--text-3); font-size: 12px; }
+
+/* ---- Trading ---------------------------------------------------------------- */
+.ticket { display: grid; gap: 12px; }
+.ticket-sides { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.ticket-sides button { height: 38px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); font-weight: 700; cursor: pointer; }
+.ticket-sides .buy[aria-pressed="true"] { background: var(--up-fill); border-color: var(--up); color: var(--up-text); }
+.ticket-sides .sell[aria-pressed="true"] { background: var(--down-fill); border-color: var(--down); color: var(--down-text); }
+.ticket-modes { width: fit-content; }
+.ticket { min-width: 0; }
+.ticket-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.ticket-grid label { display: grid; gap: 4px; font-size: 12px; font-weight: 600; color: var(--text-2); min-width: 0; }
+.ticket-grid input, .ticket-grid select { width: 100%; min-width: 0; height: 36px; border: 1px solid var(--border); border-radius: 8px; padding: 0 10px; background: var(--surface); font-size: 14px; font-weight: 400; color: var(--text); }
+.ticket-estimate div { padding: 5px 0; }
+.btn-buy { background: var(--up); }
+.btn-sell { background: var(--down); }
+.subhead { font-size: 13px; margin: 14px 0 4px; color: var(--text-2); }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-bottom: 20px; }
+.tile { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; display: grid; gap: 2px; box-shadow: var(--shadow); }
+.tile > span:first-child { color: var(--text-3); font-size: 12px; font-weight: 600; }
+.tile strong { font-size: 22px; }
+.tile span:not(:first-child) { font-size: 12px; }
+.toasts { position: fixed; right: 16px; bottom: 16px; display: grid; gap: 8px; z-index: 20; max-width: min(360px, calc(100vw - 32px)); }
+.toast { background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--brand); border-radius: 8px; padding: 10px 14px; box-shadow: 0 6px 20px rgb(0 0 0 / 0.18); }
+.toast-fill { border-left-color: var(--up); }
+.toast-rejected, .toast-margin_call { border-left-color: var(--down); }
+.margin-banner { background: var(--down-fill); border-bottom: 1px solid var(--down); padding: 10px 16px; text-align: center; }

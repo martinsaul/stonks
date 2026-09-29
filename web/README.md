@@ -24,8 +24,8 @@ the server's clock.
 |------|------|
 | `src/api/` | Generated API types, WebCrypto device keys (`crypto.ts`), signed client with clock-skew correction (`client.ts`), shared WebSocket feed (`feed.ts`) |
 | `src/lib/` | Market context (REST snapshot + live feed), formatting, chart range loading, theme, watchlist |
-| `src/components/` | Header and market strip, quote tables, price chart, order book |
-| `src/pages/` | Sign-in, Markets (home), Quote, Screener, Account |
+| `src/components/` | Header and market strip, quote tables, price chart, order book, trade ticket and open orders, toasts and margin banner |
+| `src/pages/` | Sign-in, Markets (home), Quote (with trade ticket), Screener, Portfolio, Account |
 
 The private signing key is generated non-extractable and kept in IndexedDB, so it
 never leaves the browser. A session copied to another device doesn't work there.

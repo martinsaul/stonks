@@ -13,6 +13,14 @@ export type CandlesResponse = S["CandlesResponse"];
 export type MeResponse = S["MeResponse"];
 export type LoginResponse = S["LoginResponse"];
 export type OtpRequested = S["OtpRequested"];
+export type Portfolio = S["Portfolio"];
+export type Position = S["Position"];
+export type Order = S["Order"];
+export type Fill = S["Fill"];
+export type Notice = S["Notice"];
+export type LegRequest = S["LegRequest"];
+export type PlaceOrderRequest = S["PlaceOrderRequest"];
+export type PlaceOrderResponse = S["PlaceOrderResponse"];
 
 /** A WebSocket `tick` frame. */
 export interface TickFrame {
@@ -23,4 +31,6 @@ export interface TickFrame {
   index: IndexQuote;
   quotes: Quote[];
   depth: Record<string, Depth>;
+  /** The signed-in player's portfolio (absent until the account exists). */
+  account?: Portfolio | null;
 }

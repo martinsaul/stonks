@@ -106,6 +106,10 @@ class ApiClient {
     return this.signed<T>("POST", path, body);
   }
 
+  signedDelete(path: string): Promise<void> {
+    return this.signed<void>("DELETE", path);
+  }
+
   /** Re-syncs the clock estimate with a cheap signed call (WebSockets can't report skew). */
   async calibrate(): Promise<void> {
     await this.get("/api/v1/me");

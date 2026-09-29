@@ -522,8 +522,11 @@ Repository layout: `docs/`, `api/` (shared schema → Kotlin + TS types),
 3. **Web client (read-only)** ✅ — sign-in, markets home (movers, sectors,
    watchlist), quote page (live chart with ranges, summary stats, order book),
    screener, account/badges; light/dark; nginx same-origin deployment.
-4. **Trading** — all order types, portfolio, commissions/plans, margin &
-   liquidation, shorts & borrow fees.
+4. **Trading** ✅ — all order types (market, limit, stop, stop-limit,
+   trailing, TWAP, VWAP; OCO/OTO/bracket; DAY/GTC/IOC), intake queue,
+   portfolio, commissions & plan unlocks, margin & liquidation, shorts with
+   borrow pool & fees, daily interest; write-ahead input log with replay;
+   trade ticket, portfolio page, live notices.
 5. **Living market** — events & rumors, earnings & fundamentals, corporate
    actions, company lifecycle & IPOs, news feed, copycats/inversecats.
 6. **Player economy** — claims, resets & cooldowns, bankruptcy, badges & alias

@@ -4,6 +4,7 @@ import { useFeedStatus } from "../api/feed";
 import { duration, price, REGIMES } from "../lib/format";
 import { useMarket, useNow } from "../lib/market";
 import { setTheme, useThemeChoice, type ThemeChoice } from "../lib/theme";
+import { usePortfolio } from "../lib/portfolio";
 import { Change } from "./Change";
 
 export function Logo() {
@@ -75,6 +76,7 @@ export function Header({ email, onSignOut }: { email?: string; onSignOut: () => 
         <nav className="nav" aria-label="Main">
           <NavLink to="/" end>Markets</NavLink>
           <NavLink to="/screener">Screener</NavLink>
+          <NavLink to="/portfolio">Portfolio</NavLink>
         </nav>
         <Search />
         <div className="spacer" />
@@ -114,8 +116,22 @@ function MarketStrip() {
           {session.kind === "WEEKEND" && <span className="pill">Weekend session</span>}
         </span>
         <span className="pill" title="Market phase">{REGIMES[regime] ?? regime}</span>
+        <NetWorth />
         {status !== "open" && <span className="muted">Live feed {status === "connecting" ? "connecting…" : "reconnecting…"}</span>}
       </div>
     </div>
+  );
+}
+
+function NetWorth() {
+  const p = usePortfolio();
+  if (!p) return null;
+  const day = p.positions.reduce((s, x) => s + (x.dayChange ?? 0), 0);
+  return (
+    <span className="strip-item" style={{ marginLeft: "auto" }}>
+      <span className="muted">Net worth</span>
+      <strong className="num">{(p.equity / 100).toLocaleString("en-US", { style: "currency", currency: "USD" })}</strong>
+      {day !== 0 && <Change cents={day} />}
+    </span>
   );
 }
