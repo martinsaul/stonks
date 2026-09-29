@@ -191,6 +191,23 @@ Launch set:
 only if wealth runs away. Deferred candidates: IPO sponsorship, paid intel,
 retire/prestige.
 
+## UI (Yahoo Finance–style)
+
+| Page              | Contents |
+|-------------------|----------|
+| Home / Markets    | Market strip (index, regime, benchmark rate, session clock); gainers/losers/most active; news; watchlist |
+| Quote `/quote/X`  | Price, change, bid×ask; chart (1D–Max, candle/line, volume); stats (mkt cap, P/E, EPS, yield, day/52w range, avg vol, short interest, borrow fee, days to cover, next earnings); order book depth; news; trade ticket with cost/margin preview |
+| Portfolio         | Net worth, cash, buying power, margin health; positions with P/L; open orders; bonds; history |
+| Screener          | Filter/sort by sector, P/E, performance, short interest… |
+| Earnings calendar | Upcoming reports with consensus |
+| Leaderboards      | Millionaires (tiered) and seasonal return % |
+| Player profile    | Plan, badges, stats, starting-cash level |
+| Account           | Weekly claim, monthly reset + cooldown, voluntary bankruptcy (confirmation), upgrades, badge clearing, bond offerings |
+| Admin console     | Separate area, admin role |
+
+- Live updates via WebSocket; green/red price flashes.
+- Light Yahoo-like theme by default, dark mode toggle.
+
 ## Design principles
 
 - **Keep it manageable.** We're not NYSE. Add depth incrementally through
