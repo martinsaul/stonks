@@ -147,6 +147,34 @@ Level k (k >= 1): costs $1M × 2^(k−1), raises starting cash to $5k + k × $1k
   player in debt. Intended.
 - Margin interest: plan rate over benchmark, accrued per game day.
 
+## Company lifecycle
+
+### Distress
+- Entered via strategy (death spiral) or admin action — **never by price alone**.
+- Lasts ~10–20 game days with visible warnings: going-concern notice, dividend
+  cut, credit downgrade, earnings miss.
+- Outcomes:
+  - **Bankruptcy** (most likely): trading halts, longs → $0, shorts closed at $0
+    keeping full gains, borrow fees stop, resting orders cancelled.
+  - **Bailout** (small chance): company survives with heavy share dilution;
+    distress ends, strategy changes.
+  - **Taken private** (small chance): holders cashed out at a premium over the
+    20-game-day average price (averaging resists manipulation); shorts
+    force-closed at that price; company delisted.
+
+### Take-private of healthy companies
+Occasionally a healthy company receives a buyout offer: price jumps toward the
+offer, deal closes after N game days at the offer price, company delisted.
+
+### Low price
+Below $1 for 20 game days → delisting warning → **reverse split** (e.g. 1:10).
+Price alone never kills a company.
+
+### Replacement
+Any delisted company is replaced by a new IPO within 2–5 game days (generated
+parody name, sector, starting strategy) with a pre-listing IPO auction.
+Future hook: IPO sponsorship money sink.
+
 ## Short selling
 
 - **Borrow pool** per stock, default 20% of float (admin-tunable per stock).
@@ -225,7 +253,6 @@ r = resets performed while in debt within the trailing 180 days
 ## Open topics
 
 - Cross-region accounts and leaderboards (when EMEA/APAC launch)
-- Company bankruptcy and replacement
 - Order types (market, limit, stop, stop-limit, trailing stop, bracket/OCO)
 - Seasons
 - Auth / anti multi-accounting
