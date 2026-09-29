@@ -271,12 +271,37 @@ r = resets performed while in debt within the trailing 180 days
   iCloud, Proton, …). No temp mail, no custom domains.
 - **Address normalization** before uniqueness checks: strip `+tags`; remove dots
   for Gmail; lowercase. Blocks `john.doe+alt@gmail.com`-style aliases.
+- **Alias trap:** registering with an alias (`+tag`, Gmail dots) of an address
+  that already has an account → the OTP is sent and verified as normal, then
+  registration is refused and the **main account receives a unique cosmetic
+  shame badge** ("Nice Try"). Benign: it does not count toward bankruptcy badges
+  or leaderboard tiers. If the base address has no account, the alias is simply
+  refused up front.
 - OTP: short expiry, rate-limited per address and IP. Long-lived sessions so
   players aren't asked for a code every visit.
-- Transactional email via a provider (e.g. SES, Postmark, Resend).
+- **Email delivery: dummy implementation with a TODO for now** (may use an
+  in-house solution later).
 - **Soft collusion detection** (repeat counterparties, shared device/IP, fresh
   accounts trading into thin books) feeds the manual Millionaires review; no
   automatic bans.
+
+## Admin console (game master)
+
+All actions logged and attributed. Admin-triggered events appear in the news
+feed as ordinary news.
+
+| Area              | Capabilities                                                        |
+|-------------------|---------------------------------------------------------------------|
+| Strategies        | Change a company's long-term strategy (now or next session)         |
+| Events            | Trigger events per stock / sector / market                          |
+| Scheduled events  | Queue events for a future time                                      |
+| Macro             | Set central bank rate; set market regime (bull/bear/crash/bubble)   |
+| Market controls   | Halt/resume; tune depth, volatility, borrow pool                    |
+| Corporate actions | Force splits, reverse splits, dividends, buybacks, IPOs             |
+| Players           | Trade history, flags, review queue, rollback/void, ban, approve     |
+| Bond offerings    | Issue event-based bond offerings (see below)                        |
+
+**No community goals** — they amount to sanctioned market manipulation.
 
 ## Persistence
 
@@ -311,6 +336,6 @@ r = resets performed while in debt within the trailing 180 days
 
 - Cross-region accounts and leaderboards (when EMEA/APAC launch)
 - Additional money sinks (candidates: retire/prestige, IPO sponsorship, paid intel)
-- Admin tooling (manual events, strategy changes, community goals)
+- Bond offerings: parameters
 - Copycat virtual traders
 - Historical data generation
