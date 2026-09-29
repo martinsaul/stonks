@@ -264,11 +264,28 @@ r = resets performed while in debt within the trailing 180 days
 | 25      | $671M    |
 | 29      | $9.3B    |
 
-## Leaderboard
+## Persistence
 
+- **Persistent world**, no scheduled wipes.
+- Admins can **roll back or wipe** in exceptional cases (exploits). All orders,
+  fills and balance changes are event-sourced in an append-only log, enabling:
+  single-account rollback, market-wide rollback to a point in time, and voiding
+  specific trades.
+
+## Leaderboards
+
+### All-time (Millionaires)
 - Players with net worth over $1M, manually reviewed for cheating.
 - **Tiered by outstanding badges of shame:** rank by fewest outstanding badges,
   then by net worth. Eternal Shame is its own bottom tier.
+
+### Seasonal (return %)
+- Season length: **1 month** (configurable).
+- Ranked by **return %** over the season, so newcomers can compete.
+- Qualification: minimum number of trades and active days.
+- A reset or bankruptcy during the season disqualifies the player for that
+  season.
+- Top finishers earn cosmetic badges.
 
 ## Achievement badges (to be expanded)
 
@@ -279,7 +296,6 @@ r = resets performed while in debt within the trailing 180 days
 ## Open topics
 
 - Cross-region accounts and leaderboards (when EMEA/APAC launch)
-- Seasons
 - Auth / anti multi-accounting
 - Additional money sinks (candidates: retire/prestige, IPO sponsorship, paid intel)
 - Admin tooling (manual events, strategy changes, community goals)
