@@ -29,6 +29,43 @@ virtual.
 - **Market depth auto-tunes** from average daily active players so player impact
   stays meaningful but not absurd as the population changes. Admin-overridable.
 
+## Regions & schedule
+
+- Markets are **regional instances**: AMER, EMEA, APAC. **Launch with AMER
+  only**; expand later.
+- AMER runs on **US Eastern Time**.
+- Prices tick every **5 seconds** during sessions.
+
+### Weekday (Mon–Fri): two sessions, each one game day
+
+```
+06:00 ─ 13:30   Session A (7.5h)
+13:30 ─ 14:30   Break ("overnight": news/earnings may drop, prices may gap)
+14:30 ─ 22:00   Session B (7.5h)
+22:00 ─ 06:00   Closed
+```
+
+### Weekend (Sat–Sun): one reduced session, one game day
+
+- **10:00–20:00 ET.**
+- Baseline volatility ~50% of normal.
+- No scheduled catalysts (earnings, dividends, splits). Random news at a
+  reduced rate, mostly minor.
+- Player price impact is fully real.
+- Admin-triggered events allowed.
+- **Maintenance window:** Sunday 20:00 → Monday 06:00.
+
+**12 game days per real week.**
+
+### Closed-market behavior
+- Orders can be placed while the market is closed and queue for the open.
+- Each session opens with an **opening auction**: queued orders cross at a
+  single opening price.
+- Earnings are staggered: each company reports roughly every 4 real weeks
+  (~12 earnings calls/week across 50 companies). Tunable.
+- Margin interest and borrow fees accrue per game day. Real-time timers
+  (weekly claim, monthly reset, cooldowns) run in real time.
+
 ## Design principles
 
 - **No pay-to-win.** Monetization is deferred. Anything bought with real money
@@ -134,7 +171,7 @@ r = resets performed while in debt within the trailing 180 days
 
 ## Open topics
 
-- Market hours and time compression
+- Cross-region accounts and leaderboards (when EMEA/APAC launch)
 - Price impact model (synthetic order book vs impact formula)
 - Margin: max leverage, maintenance margin, liquidation, short borrow fees
 - Company bankruptcy and replacement
