@@ -151,6 +151,33 @@ A strategy defines a company's drift, volatility and EPS growth profile.
   **market regimes** (bull, bear, crash, bubble) scale drift/vol across many
   stocks at once.
 
+## Events
+
+Two kinds, often combined: **punctual** (one-off jump/gap) and
+**strategy-changing** (swaps the company's strategy).
+
+| Event                               | Trigger            | Typical effect                                   |
+|-------------------------------------|--------------------|--------------------------------------------------|
+| Earnings beat / miss                | scheduled          | ±2–15% gap; may shift strategy                   |
+| Guidance raise / cut                | with earnings      | Moves EPS estimates; may shift strategy          |
+| Product launch hit / flop           | random             | ±5–20%                                           |
+| Scandal / fraud probe               | random             | −10–40%; may trigger Death spiral                |
+| Regulatory approval / rejection     | random (Pharma)    | ±20–60% gap                                      |
+| CEO exit / star CEO hired           | random             | ±3–10%; may trigger Turnaround                   |
+| Analyst upgrade / downgrade         | random             | ±2–5%                                            |
+| Lawsuit won / lost                  | random             | ±5–15%                                           |
+| Buyout offer                        | random             | Jumps toward offer; closes later                 |
+| Distress / bailout / taken private  | strategy-driven    | See Company lifecycle                            |
+| Stock split (2:1, 3:1, 5:1)         | scheduled          | Share count multiplied; likelier after run-ups   |
+| Dividend declared / raised / cut    | scheduled          | Paid to holders as of ex-date (shorts pay)       |
+| Buyback                             | random / scheduled | Company buys through the book over N game days   |
+| Secondary offering                  | random             | Dilution, −3–10%                                 |
+| Sector events                       | random             | Hit a whole sector                               |
+| Macro events (rates, recession…)    | scheduled / random | Market-wide; can change market regime            |
+
+- Every event produces a **parody news headline** in the feed.
+- **Rumors:** some events are rumored before they happen; some rumors are false.
+
 ## Design principles
 
 - **Keep it manageable.** We're not NYSE. Add depth incrementally through
