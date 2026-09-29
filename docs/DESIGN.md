@@ -488,7 +488,9 @@ Repository layout: `docs/`, `api/` (shared schema → Kotlin + TS types),
    world snapshots + catch-up, candle storage, signed-request auth with rate
    limiting, WebSocket price feed, OTP sign-in (dummy delivery), alias trap,
    Docker Compose deployment.
-3. **Web client (read-only)** — home, quote page with chart + depth, screener.
+3. **Web client (read-only)** ✅ — sign-in, markets home (movers, sectors,
+   watchlist), quote page (live chart with ranges, summary stats, order book),
+   screener, account/badges; light/dark; nginx same-origin deployment.
 4. **Trading** — all order types, portfolio, commissions/plans, margin &
    liquidation, shorts & borrow fees.
 5. **Living market** — events & rumors, earnings & fundamentals, corporate

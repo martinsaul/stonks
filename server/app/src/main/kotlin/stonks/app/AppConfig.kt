@@ -22,6 +22,8 @@ data class AppConfig(
     /** Honour X-Forwarded-For (only behind a reverse proxy you control). */
     val trustProxy: Boolean = false,
     val corsOrigins: List<String> = emptyList(),
+    /** Development only: shifts the server clock, e.g. to try the market outside hours. */
+    val devTimeShiftHours: Long = 0,
     /** Overrides the built-in email provider allowlist when non-empty. */
     val allowedEmailDomains: Set<String> = emptySet(),
     val limits: Limits = Limits(),
@@ -65,12 +67,14 @@ data class AppConfig(
                 devMode = str("DEV_MODE")?.toBoolean() ?: false,
                 trustProxy = str("TRUST_PROXY")?.toBoolean() ?: false,
                 corsOrigins = list("CORS_ORIGINS"),
+                devTimeShiftHours = str("DEV_TIME_SHIFT_HOURS")?.toLong() ?: 0,
                 allowedEmailDomains = list("ALLOWED_EMAIL_DOMAINS").map { it.lowercase() }.toSet(),
             )
             if (c.otpPepper == DEV_PEPPER && !c.devMode) {
                 log.warn("STONKS_OTP_PEPPER is not set; using the development default. Set it in production.")
             }
             if (c.devMode) log.warn("STONKS_DEV_MODE is on: OTP codes are returned in API responses.")
+            require(c.devTimeShiftHours == 0L || c.devMode) { "STONKS_DEV_TIME_SHIFT_HOURS requires STONKS_DEV_MODE" }
             return c
         }
     }

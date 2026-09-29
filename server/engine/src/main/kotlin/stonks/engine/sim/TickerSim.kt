@@ -123,7 +123,11 @@ class TickerSim(
             company.sectorBeta * config.sectorFactorVol * sqrt(dtGap) * factors.gapSector.getValue(company.sector)
         reference *= exp(strategy.gapReturn(gapDays, vm, rng.gaussian()) + common * vm)
 
-        return runOpeningAuction()
+        // Without an auction the market opens at the gapped level; bars before the first
+        // trade must not carry yesterday's close (that would draw a false opening wick).
+        val fills = runOpeningAuction()
+        if (fills.isEmpty()) last = max(1L, reference.roundToLong())
+        return fills
     }
 
     private fun runOpeningAuction(): List<Fill> {

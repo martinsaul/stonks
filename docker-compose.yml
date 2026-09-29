@@ -1,9 +1,11 @@
-# Local / home-lab deployment: TimescaleDB + the Stonks server.
+# Local / home-lab deployment: TimescaleDB, the Stonks server, and the web client
+# (nginx serving the app and proxying /api on the same origin).
 #
 #   cp .env.example .env    # then set STONKS_OTP_PEPPER and POSTGRES_PASSWORD
 #   docker compose up -d --build
 #
-# The first start simulates ~2 game-years of market history (a minute or two).
+# Then open http://localhost:8080. The first start simulates ~2 game-years of market
+# history (a minute or two) before the API answers.
 
 services:
   db:
@@ -34,10 +36,19 @@ services:
       STONKS_OTP_PEPPER: ${STONKS_OTP_PEPPER:?set STONKS_OTP_PEPPER in .env}
       STONKS_WORLD_SEED: ${STONKS_WORLD_SEED:-}
       STONKS_DEV_MODE: ${STONKS_DEV_MODE:-false}
-      STONKS_TRUST_PROXY: ${STONKS_TRUST_PROXY:-false}
+      # Only reachable through the web proxy, which sets X-Forwarded-For.
+      STONKS_TRUST_PROXY: "true"
       STONKS_CORS_ORIGINS: ${STONKS_CORS_ORIGINS:-}
+    expose:
+      - "8080"
+
+  web:
+    build: ./web
+    restart: unless-stopped
+    depends_on:
+      - server
     ports:
-      - "${STONKS_HTTP_PORT:-8080}:8080"
+      - "${STONKS_HTTP_PORT:-8080}:80"
 
 volumes:
   db-data:

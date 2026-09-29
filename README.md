@@ -7,6 +7,7 @@ submits player actions.
 - Game design: [`docs/DESIGN.md`](docs/DESIGN.md)
 - API and request signing: [`docs/API.md`](docs/API.md), [`api/openapi.yaml`](api/openapi.yaml)
 - Server (Kotlin): [`server/`](server/README.md)
+- Web client (React + TypeScript): [`web/`](web/README.md)
 
 ## Run it (Docker)
 
@@ -16,8 +17,8 @@ docker compose up -d --build
 docker compose logs -f server
 ```
 
-The first start creates the world and simulates about 2 game-years of history (1–2
-minutes). The API listens on port 8080 (`STONKS_HTTP_PORT`).
+Open http://localhost:8080 (`STONKS_HTTP_PORT`). The first start creates the world and
+simulates about 2 game-years of history (1–2 minutes) before the site responds.
 
 Email delivery is still a stub: sign-in codes are written to the server log
 (`docker compose logs server | grep OTP`). With `STONKS_DEV_MODE=true` they're also
