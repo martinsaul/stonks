@@ -178,6 +178,19 @@ Two kinds, often combined: **punctual** (one-off jump/gap) and
 - Every event produces a **parody news headline** in the feed.
 - **Rumors:** some events are rumored before they happen; some rumors are false.
 
+## Money sinks
+
+Launch set:
+- Commissions (incl. Whale large-order fee)
+- Margin interest and short borrow fees
+- Slippage to NPC market makers
+- Starting-cash upgrades (doubling cost)
+- Badge-of-shame clearing (exponential cost)
+
+**Admin economy dashboard** tracks total player wealth over time. Add more sinks
+only if wealth runs away. Deferred candidates: IPO sponsorship, paid intel,
+retire/prestige.
+
 ## Design principles
 
 - **Keep it manageable.** We're not NYSE. Add depth incrementally through
@@ -442,4 +455,3 @@ significant for large players.
 ## Open topics
 
 - Cross-region accounts and leaderboards (when EMEA/APAC launch)
-- Additional money sinks (candidates: retire/prestige, IPO sponsorship, paid intel)
