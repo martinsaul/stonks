@@ -20,6 +20,15 @@ virtual.
 - **API contract:** single schema (protobuf or OpenAPI) generating both Kotlin
   and TypeScript types.
 
+## World & scale
+
+- **One shared global market.** All players trade the same tickers; every
+  player's trades affect prices seen by everyone.
+- **Target scale:** up to ~4k concurrent players. A single backend instance is
+  sufficient; no horizontal sharding in the initial architecture.
+- **Market depth auto-tunes** from average daily active players so player impact
+  stays meaningful but not absurd as the population changes. Admin-overridable.
+
 ## Design principles
 
 - **No pay-to-win.** Monetization is deferred. Anything bought with real money
@@ -125,7 +134,6 @@ r = resets performed while in debt within the trailing 180 days
 
 ## Open topics
 
-- Shared world / expected player count
 - Market hours and time compression
 - Price impact model (synthetic order book vs impact formula)
 - Margin: max leverage, maintenance margin, liquidation, short borrow fees
