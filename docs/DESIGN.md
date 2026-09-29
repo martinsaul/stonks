@@ -92,8 +92,8 @@ r = resets performed while in debt within the trailing 180 days
 ### Bankruptcy
 - **Voluntary:** a player with negative net worth may declare bankruptcy at any
   time. Immediate fresh start, no cooldown, +1 badge of shame.
-- **Forced (game over):** hitting the negative threshold triggers bankruptcy
-  automatically, +1 badge of shame.
+- **Forced (game over):** triggered automatically when
+  `net worth <= −10 × starting cash` (−$50k for a $5k start), +1 badge of shame.
 
 ### Badges of shame
 - Clearing badge #n costs `$1,000 × 2^(n−1) / n`, paid from cash balance.
@@ -125,7 +125,6 @@ r = resets performed while in debt within the trailing 180 days
 
 ## Open topics
 
-- Forced-bankruptcy threshold
 - Shared world / expected player count
 - Market hours and time compression
 - Price impact model (synthetic order book vs impact formula)
