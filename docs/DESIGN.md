@@ -121,6 +121,36 @@ about them is guaranteed: count, timing, size and behavior are all randomized.
 
 Chart ranges: 1D, 5D, 1M, 6M, YTD, 1Y, 5Y, Max.
 
+## Strategies
+
+A strategy defines a company's drift, volatility and EPS growth profile.
+
+| Strategy               | Behavior                                              |
+|------------------------|-------------------------------------------------------|
+| Steady growth          | Low vol, +10–20%/yr                                   |
+| Parabolic              | Accelerating growth, rising vol                       |
+| Blow-off top           | Parabolic then 50–80% collapse                        |
+| Stagnant               | Flat drift, low vol, range-bound                      |
+| Slow decline           | Gentle negative drift                                 |
+| Death spiral           | Accelerating decline → Distress                       |
+| Cyclical               | Sine-like swings                                      |
+| Turnaround             | Decline, bottom, recovery                             |
+| Volatile / speculative | No clear trend, very high vol                         |
+| Dividend aristocrat    | Low vol, rising dividends, regular buybacks           |
+
+- Each strategy instance gets a **random duration** drawn from its range.
+- Strategies may be **replaced by events before completing**.
+- Each company carries a **stack of scheduled events** (earnings, dividends,
+  splits, pre-planned catalysts) alongside its strategy.
+- On completion, the next strategy is chosen by **weighted transition odds**
+  (e.g. Steady growth → mostly Steady growth, sometimes Parabolic/Stagnant,
+  rarely Slow decline).
+- Hidden from players; inferred from chart, EPS and news.
+- Admins can force any strategy at any time.
+- **Sectors** (Tech, Energy, Pharma, Finance, Consumer, Industrial, …) and
+  **market regimes** (bull, bear, crash, bubble) scale drift/vol across many
+  stocks at once.
+
 ## Design principles
 
 - **Keep it manageable.** We're not NYSE. Add depth incrementally through
