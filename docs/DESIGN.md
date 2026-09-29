@@ -311,14 +311,17 @@ snapshot are logged and replayed on restart, so no order is lost.
 
 ## Margin & liquidation
 
-| Plan    | Max leverage | Liquidation below (equity / position value) |
-|---------|--------------|---------------------------------------------|
-| Rookie  | 2x           | 30%                                         |
-| Trader  | 2x           | 25%                                         |
-| Pro     | 4x           | 25%                                         |
-| Whale   | 6x           | 20%                                         |
+| Plan    | Max leverage (initial margin) | Liquidation below (maintenance) |
+|---------|-------------------------------|---------------------------------|
+| Rookie  | 2x (50%)                      | 30%                             |
+| Trader  | 2x (50%)                      | 25%                             |
+| Pro     | 4x (25%)                      | 15%                             |
+| Whale   | 6x (16.7%)                    | 10%                             |
 
-- **Shorts:** 150% initial collateral, liquidated below 130%.
+Margin is equity / position value. Maintenance always sits below initial margin,
+so a fully leveraged position has room to move (Whale at 6x: ~7.5% adverse move).
+
+- **Shorts:** 150% initial collateral (50% equity), liquidated below 130% (30%).
 - **Instant auto-liquidation**, no grace period. The server closes positions
   (largest loser first) until back above maintenance. Normal commissions apply.
 - **Warning** at 5% above the liquidation threshold (banner + notification).
