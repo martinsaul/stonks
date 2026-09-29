@@ -264,6 +264,20 @@ r = resets performed while in debt within the trailing 180 days
 | 25      | $671M    |
 | 29      | $9.3B    |
 
+## Accounts & auth
+
+- **Email + one-time passcode** (passwordless). No passwords, no social logins.
+- **Allowlisted well-known providers only** (Gmail, Outlook/Hotmail, Yahoo,
+  iCloud, Proton, …). No temp mail, no custom domains.
+- **Address normalization** before uniqueness checks: strip `+tags`; remove dots
+  for Gmail; lowercase. Blocks `john.doe+alt@gmail.com`-style aliases.
+- OTP: short expiry, rate-limited per address and IP. Long-lived sessions so
+  players aren't asked for a code every visit.
+- Transactional email via a provider (e.g. SES, Postmark, Resend).
+- **Soft collusion detection** (repeat counterparties, shared device/IP, fresh
+  accounts trading into thin books) feeds the manual Millionaires review; no
+  automatic bans.
+
 ## Persistence
 
 - **Persistent world**, no scheduled wipes.
@@ -296,7 +310,6 @@ r = resets performed while in debt within the trailing 180 days
 ## Open topics
 
 - Cross-region accounts and leaderboards (when EMEA/APAC launch)
-- Auth / anti multi-accounting
 - Additional money sinks (candidates: retire/prestige, IPO sponsorship, paid intel)
 - Admin tooling (manual events, strategy changes, community goals)
 - Copycat virtual traders
