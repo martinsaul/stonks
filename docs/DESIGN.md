@@ -147,6 +147,22 @@ Level k (k >= 1): costs $1M × 2^(k−1), raises starting cash to $5k + k × $1k
   player in debt. Intended.
 - Margin interest: plan rate over benchmark, accrued per game day.
 
+## Short selling
+
+- **Borrow pool** per stock, default 20% of float (admin-tunable per stock).
+  New shorts are rejected once the pool is exhausted.
+- **Borrow fee** (annualized, accrued per game day) scales with pool utilization:
+
+  | Utilization | Fee                          |
+  |-------------|------------------------------|
+  | < 50%       | 0.5%                         |
+  | 50–80%      | ramps to 10%                 |
+  | 80–100%     | steep curve, up to 100%+     |
+
+- Quote page shows **short interest %, borrow fee, days to cover**.
+- Shorts **pay dividends** if held over the ex-dividend date.
+- Squeezes emerge from rising fees + liquidation-driven market buys.
+
 ## Bailouts, resets and bankruptcy
 
 ### Weekly claim
@@ -209,7 +225,6 @@ r = resets performed while in debt within the trailing 180 days
 ## Open topics
 
 - Cross-region accounts and leaderboards (when EMEA/APAC launch)
-- Short borrow fees and availability
 - Company bankruptcy and replacement
 - Order types (market, limit, stop, stop-limit, trailing stop, bracket/OCO)
 - Seasons
