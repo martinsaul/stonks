@@ -110,6 +110,12 @@ class OrderBook(makerDepth: Int = 32) {
         return fills
     }
 
+    /** Re-inserts a resting order from a snapshot, keeping its sequence. */
+    internal fun restoreResting(order: Order) {
+        rest(order)
+        nextSequence = maxOf(nextSequence, order.sequence + 1)
+    }
+
     private fun rest(order: Order) {
         val price = requireNotNull(order.limitPrice)
         val side = if (order.side == Side.BUY) bids else asks

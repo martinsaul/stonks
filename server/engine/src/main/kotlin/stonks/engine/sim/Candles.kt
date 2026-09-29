@@ -13,8 +13,18 @@ data class Candle(
     val volume: Long,
 )
 
+enum class Resolution(val seconds: Long) { S5(5), M1(60), D1(86_400) }
+
+/** Receives every candle as it closes, e.g. to persist it. Called on the sim thread. */
+fun interface CandleSink {
+    fun onCandle(ticker: String, resolution: Resolution, candle: Candle)
+}
+
 /** A bounded, append-only candle series with one in-progress bar. */
-class CandleSeries(private val maxSize: Int) {
+class CandleSeries(
+    private val maxSize: Int,
+    private val onClose: (Candle) -> Unit = {},
+) {
     private val closed = ArrayDeque<Candle>()
     private var bucket: Long = Long.MIN_VALUE
     private var time: Instant = Instant.EPOCH
@@ -43,17 +53,27 @@ class CandleSeries(private val maxSize: Int) {
 
     fun flush() {
         if (bucket == Long.MIN_VALUE) return
-        closed.addLast(Candle(time, open, high, low, close, volume))
-        if (closed.size > maxSize) closed.removeFirst()
+        val candle = Candle(time, open, high, low, close, volume)
+        if (maxSize > 0) {
+            closed.addLast(candle)
+            if (closed.size > maxSize) closed.removeFirst()
+        }
+        onClose(candle)
         bucket = Long.MIN_VALUE
     }
 }
 
-/** Aggregates trades into 5-second, 1-minute and daily (per session) candles. */
-class CandleAggregator(retention: CandleRetention) {
-    val ticks = CandleSeries(retention.ticks)
-    val minutes = CandleSeries(retention.minutes)
-    val days = CandleSeries(retention.days)
+/**
+ * Aggregates trades into 5-second, 1-minute and daily (per session) candles. Daily
+ * candles are stamped with the session's open time.
+ */
+class CandleAggregator(private val ticker: String, retention: CandleRetention) {
+    /** Optional destination for closed candles. */
+    var sink: CandleSink? = null
+
+    val ticks = CandleSeries(retention.ticks) { sink?.onCandle(ticker, Resolution.S5, it) }
+    val minutes = CandleSeries(retention.minutes) { sink?.onCandle(ticker, Resolution.M1, it) }
+    val days = CandleSeries(retention.days) { sink?.onCandle(ticker, Resolution.D1, it) }
     private var sessionKey = 0L
 
     fun beginSession(open: Instant) {

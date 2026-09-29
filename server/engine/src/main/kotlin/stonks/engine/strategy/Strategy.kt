@@ -1,6 +1,10 @@
 package stonks.engine.strategy
 
 import stonks.engine.core.Rng
+import stonks.engine.snapshot.readDoubles
+import stonks.engine.snapshot.writeDoubles
+import java.io.DataInputStream
+import java.io.DataOutputStream
 import kotlin.math.PI
 import kotlin.math.exp
 import kotlin.math.ln
@@ -68,7 +72,16 @@ class StrategyInstance(
 
     override fun toString() = "$type(${durationDays}d)"
 
+    fun writeTo(out: DataOutputStream) {
+        out.writeUTF(type.name)
+        out.writeInt(durationDays)
+        out.writeDoubles(p)
+    }
+
     companion object {
+        fun readFrom(input: DataInputStream) =
+            StrategyInstance(StrategyType.valueOf(input.readUTF()), input.readInt(), input.readDoubles())
+
         private const val MU = 0
         private const val SIGMA = 1
         private const val K = 2

@@ -30,7 +30,7 @@ data class MarketConfig(
     val retention: CandleRetention = CandleRetention(),
 )
 
-/** How many candles of each resolution to keep in memory. */
+/** How many candles of each resolution to keep in memory (0 = none; use a sink). */
 data class CandleRetention(
     /** 5-second bars: ~10 weekday sessions. */
     val ticks: Int = 10 * 5400,

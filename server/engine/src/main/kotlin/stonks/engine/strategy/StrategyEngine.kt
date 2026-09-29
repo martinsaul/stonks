@@ -1,6 +1,10 @@
 package stonks.engine.strategy
 
 import stonks.engine.core.Rng
+import stonks.engine.snapshot.readList
+import stonks.engine.snapshot.writeList
+import java.io.DataInputStream
+import java.io.DataOutputStream
 import kotlin.math.sqrt
 
 data class StrategyRecord(val instance: StrategyInstance, val startDay: Int)
@@ -14,7 +18,7 @@ data class StrategyRecord(val instance: StrategyInstance, val startDay: Int)
  */
 class StrategyEngine(
     initial: StrategyInstance,
-    private val rng: Rng,
+    private var rng: Rng,
     private val transitions: Map<StrategyType, Map<StrategyType, Double>> = Transitions.defaults,
 ) {
     var current: StrategyInstance = initial
@@ -27,6 +31,25 @@ class StrategyEngine(
     var onComplete: (StrategyInstance) -> Unit = {}
 
     val history = mutableListOf(StrategyRecord(initial, 0))
+
+    fun writeTo(out: DataOutputStream) {
+        out.writeLong(rng.state)
+        current.writeTo(out)
+        out.writeInt(elapsedDays)
+        out.writeInt(gameDay)
+        out.writeDouble(ouDeviation)
+        out.writeList(history) { it.instance.writeTo(this); writeInt(it.startDay) }
+    }
+
+    internal fun restore(input: DataInputStream) {
+        rng = Rng.restore(input.readLong())
+        current = StrategyInstance.readFrom(input)
+        elapsedDays = input.readInt()
+        gameDay = input.readInt()
+        ouDeviation = input.readDouble()
+        history.clear()
+        history += input.readList { StrategyRecord(StrategyInstance.readFrom(this), readInt()) }
+    }
 
     val progressDays: Int get() = elapsedDays
 

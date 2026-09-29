@@ -14,7 +14,13 @@ import stonks.engine.core.Side
 import stonks.engine.core.TraderId
 import stonks.engine.core.toCentsCeil
 import stonks.engine.core.toCentsFloor
+import stonks.engine.snapshot.readList
+import stonks.engine.snapshot.readNullableLong
+import stonks.engine.snapshot.writeList
+import stonks.engine.snapshot.writeNullableLong
 import stonks.engine.strategy.StrategyEngine
+import java.io.DataInputStream
+import java.io.DataOutputStream
 import kotlin.math.exp
 import kotlin.math.max
 import kotlin.math.roundToLong
@@ -46,10 +52,10 @@ class TickerSim(
     private val config: MarketConfig,
     seed: Long,
 ) {
-    private val rng = Rng(seed)
+    private var rng = Rng(seed)
     val book = OrderBook()
     val strategy = StrategyEngine(company.initialStrategy, Rng(Rng.derive(seed, 1)))
-    val candles = CandleAggregator(config.retention)
+    val candles = CandleAggregator(company.ticker, config.retention)
 
     /** Reference price in cents (fractional; the book quotes whole cents). */
     var reference: Double = company.initialPrice.toDouble()
@@ -68,7 +74,21 @@ class TickerSim(
     private var session: Session? = null
     private var factors: SessionFactors? = null
     private var regime = MarketRegime.NEUTRAL
-    private var tick = 0
+    /** Index of the next tick to simulate in the current session. */
+    var tick = 0
+        private set
+
+    /** Close of the previous session; null before the first session. */
+    var previousClose: Cents? = null
+        private set
+    var dayOpen: Cents? = null
+        private set
+    var dayHigh: Cents? = null
+        private set
+    var dayLow: Cents? = null
+        private set
+    var dayVolume: Long = 0
+        private set
 
     val isOpen: Boolean get() = session != null
     private val regimeDrift: Double get() = regime.driftAdd * company.marketBeta
@@ -92,6 +112,7 @@ class TickerSim(
         this.factors = factors
         this.regime = regime
         tick = 0
+        dayOpen = null; dayHigh = null; dayLow = null; dayVolume = 0
         strategy.beginDay()
         candles.beginSession(session.open)
 
@@ -122,9 +143,9 @@ class TickerSim(
         val result = Auction.uncross(queued + makerOrders, reference.roundToLong())
         val fills = result?.fills ?: emptyList()
         if (result != null) {
-            val displacement = result.price - reference
-            reference += displacement
+            reference = result.price.toDouble()
             last = result.price
+            recordStats(fills)
         }
         // Leftovers continue into the continuous book (which may still cross them).
         for (o in queued) {
@@ -166,6 +187,7 @@ class TickerSim(
         //    re-centres the next quotes around where it ended, with no snap-back.
         if (fills.isNotEmpty()) {
             last = fills.last().price
+            recordStats(fills)
             val askMove = touchMove(askBefore, book.bestAsk, Side.SELL, fills)
             val bidMove = touchMove(bidBefore, book.bestBid, Side.BUY, fills)
             reference = max(1.0, reference + askMove + bidMove)
@@ -193,8 +215,18 @@ class TickerSim(
         return if (makerSide == Side.SELL) max(0.0, move) else minOf(0.0, move)
     }
 
+    private fun recordStats(fills: List<Fill>) {
+        for (f in fills) {
+            if (dayOpen == null) dayOpen = f.price
+            dayHigh = maxOf(dayHigh ?: f.price, f.price)
+            dayLow = minOf(dayLow ?: f.price, f.price)
+            dayVolume += f.quantity
+        }
+    }
+
     fun endSession() {
         checkNotNull(session) { "market closed" }
+        previousClose = last
         book.clearMakerLadders()
         book.cancelWhere { it.tif == TimeInForce.DAY }
         candles.endSession()
@@ -245,6 +277,66 @@ class TickerSim(
             val notional = rng.logNormal(medianNotional, config.backgroundSizeSigma)
             val qty = max(1L, (notional / (reference / 100.0)).toLong())
             into += book.submit(Order(nextNpcOrderId--, TraderId.BACKGROUND, side, OrderType.MARKET, qty))
+        }
+    }
+
+    /** Writes this ticker's state. Only valid while the market is closed. */
+    fun writeTo(out: DataOutputStream) {
+        check(session == null) { "snapshots are taken while the market is closed" }
+        company.writeTo(out)
+        out.writeLong(rng.state)
+        strategy.writeTo(out)
+        out.writeDouble(reference)
+        out.writeLong(last)
+        out.writeNullableLong(previousClose)
+        out.writeLong(nextNpcOrderId)
+        out.writeList(book.restingOrders().sortedBy { it.sequence }) { writeOrder(it) }
+        out.writeList(pending) { writeOrder(it) }
+    }
+
+    internal fun restore(input: DataInputStream) {
+        rng = Rng.restore(input.readLong())
+        strategy.restore(input)
+        reference = input.readDouble()
+        last = input.readLong()
+        previousClose = input.readNullableLong()
+        nextNpcOrderId = input.readLong()
+        input.readList { readOrder() }.forEach { book.restoreResting(it) }
+        pending.clear()
+        pending += input.readList { readOrder() }
+    }
+
+    companion object {
+        /** Reads a ticker written by [writeTo]. */
+        fun readFrom(input: DataInputStream, config: MarketConfig): TickerSim =
+            TickerSim(Company.readFrom(input), config, seed = 0).also { it.restore(input) }
+
+        private fun DataOutputStream.writeOrder(o: Order) {
+            writeLong(o.id)
+            writeUTF(o.trader.kind.name)
+            writeLong(o.trader.id)
+            writeUTF(o.side.name)
+            writeUTF(o.type.name)
+            writeLong(o.quantity)
+            writeLong(o.remaining)
+            writeNullableLong(o.limitPrice)
+            writeUTF(o.tif.name)
+            writeLong(o.sequence)
+        }
+
+        private fun DataInputStream.readOrder(): Order {
+            val id = readLong()
+            val trader = TraderId(stonks.engine.core.TraderKind.valueOf(readUTF()), readLong())
+            val side = Side.valueOf(readUTF())
+            val type = OrderType.valueOf(readUTF())
+            val quantity = readLong()
+            val remaining = readLong()
+            val limit = readNullableLong()
+            val tif = TimeInForce.valueOf(readUTF())
+            return Order(id, trader, side, type, quantity, limit, tif).also {
+                it.remaining = remaining
+                it.sequence = readLong()
+            }
         }
     }
 }

@@ -4,6 +4,8 @@ import stonks.engine.core.Rng
 import stonks.engine.strategy.StrategyInstance
 import stonks.engine.strategy.StrategyType
 import stonks.engine.strategy.Transitions
+import java.io.DataInputStream
+import java.io.DataOutputStream
 
 enum class Sector { TECH, CONSUMER, ENERGY, PHARMA, FINANCE, INDUSTRIAL }
 
@@ -19,7 +21,33 @@ data class Company(
     /** Sensitivity to the sector factor. */
     val sectorBeta: Double,
     val initialStrategy: StrategyInstance,
-)
+) {
+    val marketCapAtIpo: Double get() = initialPrice / 100.0 * sharesOutstanding
+
+    fun writeTo(out: DataOutputStream) {
+        out.writeUTF(ticker)
+        out.writeUTF(name)
+        out.writeUTF(sector.name)
+        out.writeLong(sharesOutstanding)
+        out.writeLong(initialPrice)
+        out.writeDouble(marketBeta)
+        out.writeDouble(sectorBeta)
+        initialStrategy.writeTo(out)
+    }
+
+    companion object {
+        fun readFrom(input: DataInputStream) = Company(
+            ticker = input.readUTF(),
+            name = input.readUTF(),
+            sector = Sector.valueOf(input.readUTF()),
+            sharesOutstanding = input.readLong(),
+            initialPrice = input.readLong(),
+            marketBeta = input.readDouble(),
+            sectorBeta = input.readDouble(),
+            initialStrategy = StrategyInstance.readFrom(input),
+        )
+    }
+}
 
 /** The launch roster of parody companies. */
 object CompanyCatalog {
