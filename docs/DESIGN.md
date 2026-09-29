@@ -41,6 +41,29 @@ Benchmark = simulated central bank rate.
 
 Net worth = cash + position value − margin debt − short liabilities.
 
+## Starting cash
+
+New and reset accounts start with **$5,000**.
+
+### Starting-cash upgrades (money sink)
+Bought with in-game cash, sequentially:
+
+```
+Level k (k >= 1): costs $1M × 2^(k−1), raises starting cash to $5k + k × $1k
+```
+
+| Level | Cost   | Total spent | Starting cash |
+|-------|--------|-------------|---------------|
+| 1     | $1M    | $1M         | $6k           |
+| 2     | $2M    | $3M         | $7k           |
+| 3     | $4M    | $7M         | $8k           |
+| 5     | $16M   | $31M        | $10k          |
+| 10    | $512M  | ~$1B        | $15k          |
+| 20    | $524B  | ~$1T        | $25k          |
+
+- Upgrades **survive monthly resets**.
+- **Bankruptcy (voluntary or forced) removes one level.**
+
 ## Bailouts, resets and bankruptcy
 
 ### Weekly claim
@@ -102,7 +125,7 @@ r = resets performed while in debt within the trailing 180 days
 
 ## Open topics
 
-- Forced-bankruptcy threshold and starting cash
+- Forced-bankruptcy threshold
 - Shared world / expected player count
 - Market hours and time compression
 - Price impact model (synthetic order book vs impact formula)
@@ -111,7 +134,7 @@ r = resets performed while in debt within the trailing 180 days
 - Order types (market, limit, stop, stop-limit, trailing stop, bracket/OCO)
 - Seasons
 - Auth / anti multi-accounting
-- Money sink (candidates: retire/prestige, IPO sponsorship, paid intel)
+- Additional money sinks (candidates: retire/prestige, IPO sponsorship, paid intel)
 - Admin tooling (manual events, strategy changes, community goals)
 - Copycat virtual traders
 - Historical data generation
