@@ -130,6 +130,23 @@ Level k (k >= 1): costs $1M × 2^(k−1), raises starting cash to $5k + k × $1k
 - Upgrades **survive monthly resets**.
 - **Bankruptcy (voluntary or forced) removes one level.**
 
+## Margin & liquidation
+
+| Plan    | Max leverage | Liquidation below (equity / position value) |
+|---------|--------------|---------------------------------------------|
+| Rookie  | 2x           | 30%                                         |
+| Trader  | 2x           | 25%                                         |
+| Pro     | 4x           | 25%                                         |
+| Whale   | 6x           | 20%                                         |
+
+- **Shorts:** 150% initial collateral, liquidated below 130%.
+- **Instant auto-liquidation**, no grace period. The server closes positions
+  (largest loser first) until back above maintenance. Normal commissions apply.
+- **Warning** at 5% above the liquidation threshold (banner + notification).
+- Gaps (e.g. post-earnings opens) liquidate at the gapped price and can leave the
+  player in debt. Intended.
+- Margin interest: plan rate over benchmark, accrued per game day.
+
 ## Bailouts, resets and bankruptcy
 
 ### Weekly claim
@@ -192,7 +209,7 @@ r = resets performed while in debt within the trailing 180 days
 ## Open topics
 
 - Cross-region accounts and leaderboards (when EMEA/APAC launch)
-- Margin: max leverage, maintenance margin, liquidation, short borrow fees
+- Short borrow fees and availability
 - Company bankruptcy and replacement
 - Order types (market, limit, stop, stop-limit, trailing stop, bracket/OCO)
 - Seasons
