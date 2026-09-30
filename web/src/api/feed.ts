@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useSyncExternalStore } from "react";
 import { api } from "./client";
-import type { Quote, TickFrame } from "./types";
+import type { Portfolio, Quote, TickFrame } from "./types";
 
 type Want = { quotes: string[]; depth: string[] };
 
@@ -72,9 +72,13 @@ class MarketFeed {
         this.sendSubscriptions();
       };
       ws.onmessage = (e) => {
-        const msg = JSON.parse(e.data as string) as { type: string };
+        const msg = JSON.parse(e.data as string) as { type: string; account?: Portfolio };
         if (msg.type === "tick") {
           this.frame = mergeFrame(this.frame, msg as TickFrame);
+          this.listeners.forEach((l) => l());
+        } else if (msg.type === "account" && this.frame && msg.account) {
+          // Between ticks: only this player's account changed.
+          this.frame = { ...this.frame, account: msg.account };
           this.listeners.forEach((l) => l());
         }
       };

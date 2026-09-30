@@ -98,7 +98,11 @@ tickers. The current state is sent immediately. After that, a `tick` frame arriv
  "depth": {"FOOF": {"bids": [{"price": 5145, "size": 1200}, …], "asks": […]}}}
 ```
 
-Slow clients skip frames rather than queueing them.
+Between ticks, when only your own account changes (an order placed, filled or
+cancelled), you get `{"type": "account", "account": {…}}`. Other players don't.
+Slow clients skip frames rather than queueing them. Only text messages are
+accepted: every client message counts toward the 5/s limit, and binary messages
+close the connection.
 
 ## Endpoints (signed)
 

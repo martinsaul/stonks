@@ -22,7 +22,7 @@ export type LegRequest = S["LegRequest"];
 export type PlaceOrderRequest = S["PlaceOrderRequest"];
 export type PlaceOrderResponse = S["PlaceOrderResponse"];
 
-/** A WebSocket `tick` frame. */
+/** A WebSocket `tick` frame (every 5 s). Between ticks, `{type: "account", account}` frames update only the player's own account. */
 export interface TickFrame {
   type: "tick";
   time: string;

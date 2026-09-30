@@ -1,6 +1,11 @@
 package stonks.app
 
 import io.ktor.client.HttpClient
+import io.ktor.client.plugins.websocket.WebSockets
+import io.ktor.client.plugins.websocket.webSocketSession
+import io.ktor.websocket.Frame
+import io.ktor.websocket.readText
+import kotlinx.coroutines.withTimeoutOrNull
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -169,7 +174,7 @@ class TradingApiTest {
         // Stop at the same instant and restart: the snapshot predates these orders.
         app.close()
         app = App(config, TestDb.reconnect(db), clock).also { it.start(liveLoop = false) }
-        val after = app.market.state.portfolios.getValue(s.accountId)
+        val after = app.market.portfolio(s.accountId)!!
         assertEquals(before["cash"]!!.jsonPrimitive.long, after.cash)
         assertEquals(
             before["positions"]!!.jsonArray.map { it.jsonObject["ticker"]!!.jsonPrimitive.content to it.jsonObject["quantity"]!!.jsonPrimitive.long },
@@ -208,8 +213,48 @@ class TradingApiTest {
         app = App(config, db2, clock).also { it.start(liveLoop = false) }
         clock.advance(60)
         app.market.pump(clock.instant())
-        val p = app.market.state.portfolios.getValue(s.accountId)
+        val p = app.market.portfolio(s.accountId)!!
         assertEquals(5_000_00, p.cash)
         assertTrue(p.openOrders.isEmpty())
+    }
+
+    private suspend fun HttpClient.socket(s: S) = run {
+        val ts = clock.millis()
+        val nonce = s.key.nonce()
+        val sig = s.key.sign("GET", "/api/v1/ws", ts, nonce)
+        webSocketSession("/api/v1/ws?session=${s.id}&ts=$ts&nonce=$nonce&sig=$sig")
+    }
+
+    @Test
+    fun `order updates reach only the player's own sockets`() = testApplication {
+        application { stonksModule(app) }
+        val c = createClient { install(WebSockets) }
+        val a = c.login("alice@gmail.com")
+        val b = c.login("bob@gmail.com")
+        c.portfolio(a); c.portfolio(b)
+        val wsA = c.socket(a)
+        val wsB = c.socket(b)
+        // Drain the initial frames.
+        assertEquals("tick", json((wsA.incoming.receive() as Frame.Text).readText())["type"]!!.jsonPrimitive.content)
+        assertEquals("tick", json((wsB.incoming.receive() as Frame.Text).readText())["type"]!!.jsonPrimitive.content)
+
+        // Between ticks (the clock is frozen), Alice places an order.
+        c.signed(a, "POST", "/api/v1/orders", """{"ticker":"FOOF","legs":[{"side":"BUY","quantity":1,"type":"LIMIT","limitPrice":100,"timeInForce":"GTC"}]}""")
+        val frameA = json((withTimeoutOrNull(3000) { wsA.incoming.receive() } as Frame.Text).readText())
+        assertEquals("account", frameA["type"]!!.jsonPrimitive.content)
+        assertEquals(1, frameA["account"]!!.jsonObject["openOrders"]!!.jsonArray.size)
+        assertEquals(null, withTimeoutOrNull(1000) { wsB.incoming.receive() }, "Bob must not be sent Alice's update")
+    }
+
+    @Test
+    fun `binary websocket messages are refused`() = testApplication {
+        application { stonksModule(app) }
+        val c = createClient { install(WebSockets) }
+        val s = c.login("binary@gmail.com")
+        val ws = c.socket(s)
+        ws.incoming.receive()
+        ws.send(Frame.Binary(true, ByteArray(10)))
+        val reason = withTimeoutOrNull(3000) { ws.closeReason.await() }
+        assertEquals("Text messages only", reason?.message)
     }
 }

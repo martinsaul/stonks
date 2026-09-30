@@ -35,6 +35,10 @@ data class TickFrame(
     val account: stonks.app.trading.PortfolioDto? = null,
 )
 
+/** Sent between ticks when only the player's own account changed. */
+@Serializable
+data class AccountFrame(val type: String = "account", val account: stonks.app.trading.PortfolioDto)
+
 @Serializable
 data class ServerMessage(val type: String, val message: String? = null, val quotes: List<String>? = null, val depth: List<String>? = null)
 
@@ -46,23 +50,46 @@ data class ServerMessage(val type: String, val message: String? = null, val quot
  * simulation. Subscriptions and inbound messages are capped per connection, and
  * sockets per account.
  */
-class PriceFeed(private val maxSocketsPerAccount: Int) {
+class PriceFeed(
+    private val maxSocketsPerAccount: Int,
+    private val portfolioOf: (Long) -> stonks.app.trading.PortfolioDto? = { null },
+) {
     private val json = Json { encodeDefaults = true; explicitNulls = false }
     private val connections = ConcurrentHashMap.newKeySet<Connection>()
+    private val byAccount = ConcurrentHashMap<Long, MutableSet<Connection>>()
     private val perAccount = ConcurrentHashMap<Long, AtomicInteger>()
     private val inbound = RateLimiter(10.0, 5.0)
+    @Volatile private var latest: MarketState? = null
 
     private class Connection(val principal: Principal) {
-        val outbox = Channel<MarketState>(Channel.CONFLATED)
+        /** Wake-up signal; the flags say what to send. Conflated: slow clients skip updates. */
+        val signal = Channel<Unit>(Channel.CONFLATED)
+        @Volatile var marketDirty = false
+        @Volatile var accountDirty = false
         @Volatile var quotes: Set<String> = emptySet()
         @Volatile var depth: Set<String> = emptySet()
     }
 
     val connectionCount: Int get() = connections.size
 
-    /** Called on the simulation thread after each publish; never blocks. */
+    /** A market tick: every client gets a frame (with its own account). Never blocks. */
     fun publish(state: MarketState) {
-        for (c in connections) c.outbox.trySend(state)
+        latest = state
+        for (c in connections) {
+            c.marketDirty = true
+            c.signal.trySend(Unit)
+        }
+    }
+
+    /** Only these players' accounts changed: notify just their sockets. Never blocks. */
+    fun accountsChanged(accountIds: Set<Long>) {
+        for (id in accountIds) {
+            val conns = byAccount[id] ?: continue
+            for (c in conns) {
+                c.accountDirty = true
+                c.signal.trySend(Unit)
+            }
+        }
     }
 
     suspend fun handle(ws: DefaultWebSocketServerSession, principal: Principal, current: () -> MarketState) {
@@ -74,17 +101,33 @@ class PriceFeed(private val maxSocketsPerAccount: Int) {
         }
         val conn = Connection(principal)
         connections += conn
+        byAccount.computeIfAbsent(principal.accountId) { ConcurrentHashMap.newKeySet() } += conn
+        latest = latest ?: current()
         try {
-            conn.outbox.trySend(current())
+            conn.marketDirty = true
+            conn.signal.trySend(Unit)
             val sender = ws.launch {
-                for (state in conn.outbox) {
-                    ws.send(Frame.Text(json.encodeToString(TickFrame.serializer(), frameFor(conn, state))))
+                for (u in conn.signal) {
+                    if (conn.marketDirty) {
+                        conn.marketDirty = false
+                        conn.accountDirty = false
+                        val state = latest ?: continue
+                        ws.send(Frame.Text(json.encodeToString(TickFrame.serializer(), frameFor(conn, state))))
+                    } else if (conn.accountDirty) {
+                        conn.accountDirty = false
+                        val account = portfolioOf(conn.principal.accountId) ?: continue
+                        ws.send(Frame.Text(json.encodeToString(AccountFrame.serializer(), AccountFrame(account = account))))
+                    }
                 }
             }
             for (frame in ws.incoming) {
-                if (frame !is Frame.Text) continue
+                // Every client message counts against the limit, whatever its type.
                 if (inbound.take(principal.sessionId) > 0) {
                     ws.close(CloseReason(CloseReason.Codes.VIOLATED_POLICY, "Too many messages"))
+                    break
+                }
+                if (frame !is Frame.Text) {
+                    ws.close(CloseReason(CloseReason.Codes.CANNOT_ACCEPT, "Text messages only"))
                     break
                 }
                 val msg = runCatching { json.decodeFromString(ClientMessage.serializer(), frame.readText()) }.getOrNull()
@@ -94,7 +137,9 @@ class PriceFeed(private val maxSocketsPerAccount: Int) {
                         conn.depth = (msg.depth ?: emptyList()).map { it.uppercase() }.take(MAX_DEPTH).toSet()
                         ws.send(Frame.Text(json.encodeToString(ServerMessage.serializer(), ServerMessage("subscribed", quotes = conn.quotes.toList(), depth = conn.depth.toList()))))
                         // Deliver current data now rather than at the next tick (which may be hours away).
-                        conn.outbox.trySend(current())
+                        latest = current()
+                        conn.marketDirty = true
+                        conn.signal.trySend(Unit)
                     }
                     "ping" -> ws.send(Frame.Text("""{"type":"pong"}"""))
                     else -> ws.send(Frame.Text(json.encodeToString(ServerMessage.serializer(), ServerMessage("error", "Unknown message"))))
@@ -103,7 +148,8 @@ class PriceFeed(private val maxSocketsPerAccount: Int) {
             sender.cancel()
         } finally {
             connections -= conn
-            conn.outbox.close()
+            byAccount[principal.accountId]?.remove(conn)
+            conn.signal.close()
             perAccount[principal.accountId]?.decrementAndGet()
         }
     }
@@ -115,7 +161,7 @@ class PriceFeed(private val maxSocketsPerAccount: Int) {
         index = s.index,
         quotes = if (c.quotes.isEmpty()) emptyList() else s.quotes.filter { it.ticker in c.quotes },
         depth = if (c.depth.isEmpty()) emptyMap() else s.depth.filterKeys { it in c.depth },
-        account = s.portfolios[c.principal.accountId],
+        account = portfolioOf(c.principal.accountId),
     )
 
     companion object {

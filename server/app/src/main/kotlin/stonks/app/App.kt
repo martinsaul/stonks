@@ -43,7 +43,7 @@ class App(
         seedOverride = config.worldSeed,
         backfillSessions = config.backfillSessions,
     )
-    val feed = PriceFeed(config.limits.maxSocketsPerAccount)
+    val feed = PriceFeed(config.limits.maxSocketsPerAccount) { market.portfolio(it) }
     val quoteStats = QuoteStatsCache { ticker ->
         candles.dailyStats(ticker).let { QuoteStats(it.high52, it.low52, it.avgVolume30) }
     }
@@ -52,6 +52,7 @@ class App(
     /** Builds the world (or restores it) and starts the live market. */
     fun start(liveLoop: Boolean = true) {
         market.onPublish(feed::publish)
+        market.onAccountsChanged(feed::accountsChanged)
         market.bootstrap()
         if (liveLoop) market.start()
         housekeeping.scheduleWithFixedDelay({ runCatching { sessions.flushLastSeen() } }, 60, 60, TimeUnit.SECONDS)

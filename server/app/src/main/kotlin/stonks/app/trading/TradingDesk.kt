@@ -75,10 +75,10 @@ class TradingDesk(
         inbox.poll(millis, TimeUnit.MILLISECONDS)?.let(buffered::addLast)
     }
 
-    /** Processes queued commands. Returns true if any were processed. */
-    fun process(market: Market, now: Instant, schedule: (ready: Instant) -> Schedule): Boolean {
+    /** Processes queued commands. Returns the accounts they touched. */
+    fun process(market: Market, now: Instant, schedule: (ready: Instant) -> Schedule): Set<Long> {
         while (true) buffered.addLast(inbox.poll() ?: break)
-        if (buffered.isEmpty()) return false
+        if (buffered.isEmpty()) return emptySet()
         val cmds = buffered.toList()
         buffered.clear()
 
@@ -119,14 +119,14 @@ class TradingDesk(
                 }
             }
         }
-        if (accepted.isEmpty()) return true
+        if (accepted.isEmpty()) return emptySet()
 
         val seqs = try {
             store.log(accepted.map { it.second })
         } catch (e: Exception) {
             log.error("Failed to log {} inputs", accepted.size, e)
             accepted.forEach { it.first.fail(IllegalStateException("Could not record the request; please retry.")) }
-            return true
+            return emptySet()
         }
         accepted.forEachIndexed { i, (cmd, input) ->
             val seq = seqs[i]
@@ -141,7 +141,7 @@ class TradingDesk(
                 }
             }
         }
-        return true
+        return accepted.mapTo(HashSet()) { it.first.accountId }
     }
 
     /** Re-applies a logged input (after a restart). */
@@ -181,9 +181,9 @@ class TradingDesk(
         }
     }
 
-    /** Updates views from engine events and queues their persistence. */
-    fun absorb(events: List<EngineEvent>, now: Instant) {
-        if (events.isEmpty()) return
+    /** Updates views from engine events and queues their persistence. Returns the accounts touched. */
+    fun absorb(events: List<EngineEvent>, now: Instant): Set<Long> {
+        if (events.isEmpty()) return emptySet()
         val at = now.toString()
         val orderRows = LinkedHashMap<Long, OrderUpdate>()
         val fills = ArrayList<FillEvent>()
@@ -225,6 +225,7 @@ class TradingDesk(
                 log.error("Failed to persist {} order updates / {} fills", orderList.size, fills.size, e)
             }
         }
+        return events.mapTo(HashSet()) { it.accountId }
     }
 
     private fun notice(accountId: Long, kind: String, text: String, at: String) {
@@ -233,10 +234,11 @@ class TradingDesk(
         while (q.size > 20) q.removeFirst()
     }
 
-    /** Builds every account's portfolio from the engine (simulation thread). */
-    fun portfolios(market: Market): Map<Long, PortfolioDto> {
+    /** Builds portfolios from the engine (simulation thread): all accounts, or just [only]. */
+    fun portfolios(market: Market, only: Set<Long>? = null): Map<Long, PortfolioDto> {
         val prices = market.prices
-        return market.ledger.accounts.values.associate { a ->
+        val accounts = if (only == null) market.ledger.accounts.values else only.mapNotNull { market.ledger.account(it) }
+        return accounts.associate { a ->
             val f = market.ledger.figures(a, prices)
             val available = f.equity - f.initialRequirement - f.reserved
             val positions = a.positions.map { (ticker, p) ->

@@ -55,6 +55,8 @@ class MarketRuntime(
     private val flusher = Executors.newSingleThreadScheduledExecutor { r -> Thread(r, "candle-writer").apply { isDaemon = true } }
     private val published = AtomicReference<MarketState>()
     private val listeners = CopyOnWriteArrayList<(MarketState) -> Unit>()
+    private val accountListeners = CopyOnWriteArrayList<(Set<Long>) -> Unit>()
+    private val portfolios = java.util.concurrent.ConcurrentHashMap<Long, stonks.app.trading.PortfolioDto>()
     @Volatile private var running = false
     private var thread: Thread? = null
 
@@ -66,6 +68,14 @@ class MarketRuntime(
     fun onPublish(listener: (MarketState) -> Unit) {
         listeners += listener
     }
+
+    /** Called with the accounts whose portfolios changed between market ticks. */
+    fun onAccountsChanged(listener: (Set<Long>) -> Unit) {
+        accountListeners += listener
+    }
+
+    /** A player's latest portfolio (null until their trading account exists). */
+    fun portfolio(accountId: Long): stonks.app.trading.PortfolioDto? = portfolios[accountId]
 
     /** Creates or restores the world and catches up to [clock]. Blocking. */
     fun bootstrap() {
@@ -187,24 +197,33 @@ class MarketRuntime(
      * the simulation thread; exposed for tests.
      */
     fun pump(now: Instant): Instant {
-        var changed = desk.process(market, now, ::scheduleOrder)
+        val touched = HashSet(desk.process(market, now, ::scheduleOrder))
+        var marketChanged = false
         val s = market.session
         if (s == null) {
             if (!now.isBefore(nextSession().open)) {
                 catchUp(now)
-                changed = true
+                marketChanged = true
             }
         } else {
             val due = ticksDue(s, now)
             if (market.tick < due) {
                 while (market.tick < due) market.step()
                 if (market.tick >= s.ticks) finishSession()
-                changed = true
+                marketChanged = true
             }
         }
-        val events = market.drainEvents()
-        desk.absorb(events, now)
-        if (changed || events.isNotEmpty()) publish(now)
+        touched += desk.absorb(market.drainEvents(), now)
+        if (marketChanged) {
+            publish(now) // prices moved: every portfolio is rebuilt and every client gets a tick
+        } else if (touched.isNotEmpty()) {
+            // Between ticks only the affected players' portfolios change: rebuild and push
+            // just those (not a broadcast to every client).
+            portfolios.putAll(desk.portfolios(market, touched))
+            for (l in accountListeners) {
+                try { l(touched) } catch (e: Exception) { log.warn("account listener failed", e) }
+            }
+        }
         val open = market.session ?: return nextSession().open
         return open.tickTime(market.tick + 1)
     }
@@ -281,12 +300,13 @@ class MarketRuntime(
             .takeIf { it.size == tickers.size }?.let { 1000.0 * it.average() }
         val index = IndexQuote("STONKS 50", value, prev, prev?.let { value - it }, prev?.let { (value - it) / it * 100 })
 
-        val portfolios = desk.portfolios(market)
+        val all = desk.portfolios(market)
+        portfolios.putAll(all)
         if (Duration.between(lastPortfolioPersist, now) >= Duration.ofMinutes(1) || market.session == null) {
             lastPortfolioPersist = now
-            desk.persistPortfolios(portfolios.values)
+            desk.persistPortfolios(all.values)
         }
-        val state = MarketState(now, session, market.regime.name, index, quotes, depth, liveMinute, portfolios)
+        val state = MarketState(now, session, market.regime.name, index, quotes, depth, liveMinute)
         published.set(state)
         for (l in listeners) {
             try { l(state) } catch (e: Exception) { log.warn("listener failed", e) }

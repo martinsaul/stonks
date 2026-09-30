@@ -45,7 +45,7 @@ fun Route.tradingRoutes(app: App) {
     get("/orders") {
         val accountId = call.principal.accountId
         when (call.request.queryParameters["status"] ?: "open") {
-            "open" -> call.respond(app.market.state.portfolios[accountId]?.openOrders ?: emptyList())
+            "open" -> call.respond(app.market.portfolio(accountId)?.openOrders ?: emptyList())
             "all" -> {
                 app.guard.charge(call.principal, 2.0)
                 call.respond(app.trading.recentOrders(accountId, 200))
@@ -71,7 +71,7 @@ private suspend fun <T> awaitCommand(f: CompletableFuture<T>): T = try {
 
 /** Opens the player's trading account (with starting cash) on first use. */
 suspend fun App.ensureAccount(accountId: Long) {
-    if (market.state.portfolios.containsKey(accountId)) return
+    if (market.portfolio(accountId) != null) return
     val opened = CompletableFuture<Boolean>()
     market.desk.submit(Command.OpenAccount(accountId, clock.instant(), opened))
     awaitCommand(opened)
@@ -81,7 +81,7 @@ suspend fun App.portfolio(accountId: Long): PortfolioDto {
     ensureAccount(accountId)
     // The account appears in the next published state (normally within milliseconds).
     repeat(200) {
-        market.state.portfolios[accountId]?.let { return it }
+        market.portfolio(accountId)?.let { return it }
         delay(10)
     }
     throw ApiException(HttpStatusCode.ServiceUnavailable, "busy", "The market is busy; please retry.")
