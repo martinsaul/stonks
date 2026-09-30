@@ -273,14 +273,45 @@ class MarketRuntime(
         pool.shutdown()
     }
 
+    /** Called after every session with all portfolios (economy statistics). */
+    @Volatile var onSessionEnd: ((day: Int, portfolios: Collection<stonks.app.trading.PortfolioDto>) -> Unit)? = null
+
+    /** Runs [read] on the simulation thread and waits for its result. */
+    fun <T> query(read: (Market) -> T): java.util.concurrent.CompletableFuture<T> {
+        val f = java.util.concurrent.CompletableFuture<Any?>()
+        desk.submit(stonks.app.trading.Command.Query(clock.instant(), read, f))
+        @Suppress("UNCHECKED_CAST")
+        return f as java.util.concurrent.CompletableFuture<T>
+    }
+
+    /** Session open of game day [day], if within the calendar horizon. Simulation thread only. */
+    fun dateOf(day: Int): Instant? = sessionDates().getOrNull(day - market.day)?.open
+
+    /**
+     * The game (day, tick) at wall-clock [at]: a tick within a session, or the next
+     * session's open (-1) during a break. Simulation thread only.
+     */
+    fun locate(at: Instant): Pair<Int, Int>? {
+        for ((k, s) in sessionDates().withIndex()) {
+            if (at.isBefore(s.open)) return (market.day + k) to -1
+            if (at.isBefore(s.close)) return (market.day + k) to (Duration.between(s.open, at).seconds / MarketSchedule.TICK_SECONDS).toInt()
+        }
+        return null
+    }
+
     private fun begin(s: Session) {
         market.beginSession(s)
         lastSession = s
     }
 
     private fun finishSession() {
+        val day = market.day
         market.endSession()
         drainWorld()
+        onSessionEnd?.let { cb ->
+            val all = desk.portfolios(market).values
+            flusher.execute { runCatching { cb(day, all) }.onFailure { log.error("session-end hook", it) } }
+        }
         saveSnapshot()
     }
 

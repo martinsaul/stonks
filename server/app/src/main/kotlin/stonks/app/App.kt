@@ -52,12 +52,29 @@ class App(
         QuoteStats(daily.maxOfOrNull { it.high }, daily.minOfOrNull { it.low }, recent.takeIf { it.isNotEmpty() }?.let { r -> r.sumOf { it.volume } / r.size })
     }
     val leaderboards = stonks.app.economy.Leaderboards(db, accounts, { market.allPortfolios() }, clock)
+    val admin = stonks.app.admin.AdminStore(db)
+
+    /** Restarts the process (a world rollback applies on start). Replaced in tests. */
+    var restart: () -> Unit = {
+        Thread {
+            Thread.sleep(1000)
+            org.slf4j.LoggerFactory.getLogger(App::class.java).warn("Restarting for a world rollback")
+            Runtime.getRuntime().exit(0)
+        }.start()
+    }
+
+    fun requestRestart() = restart()
     private val housekeeping = Executors.newSingleThreadScheduledExecutor { r -> Thread(r, "housekeeping").apply { isDaemon = true } }
 
     /** Builds the world (or restores it) and starts the live market. */
     fun start(liveLoop: Boolean = true) {
         market.onPublish(feed::publish)
         market.onAccountsChanged(feed::accountsChanged)
+        market.onSessionEnd = { day, ports ->
+            val worths = ports.map { it.standing.netWorth }
+            admin.recordStats(day, clock.instant(), worths, ports.sumOf { it.cash }, ports.sumOf { maxOf(0, -it.cash) })
+        }
+        admin.applyPendingRollback(clock.instant())
         market.bootstrap()
         if (liveLoop) market.start()
         housekeeping.scheduleWithFixedDelay({ runCatching { sessions.flushLastSeen() } }, 60, 60, TimeUnit.SECONDS)

@@ -16,6 +16,7 @@ class ApiException(
 
 fun badRequest(message: String, code: String = "bad_request") = ApiException(HttpStatusCode.BadRequest, code, message)
 fun notFound(message: String) = ApiException(HttpStatusCode.NotFound, "not_found", message)
+fun forbidden(message: String = "Not allowed.") = ApiException(HttpStatusCode.Forbidden, "forbidden", message)
 
 fun unauthorized(code: String, message: String, serverTimeMillis: Long) = ApiException(
     HttpStatusCode.Unauthorized, code, message,

@@ -49,7 +49,7 @@ fun Application.stonksModule(app: App) {
             allowMethod(HttpMethod.Post)
             allowMethod(HttpMethod.Delete)
             allowHeader(HttpHeaders.ContentType)
-            listOf(RequestSignature.HEADER_SESSION, RequestSignature.HEADER_TIMESTAMP, RequestSignature.HEADER_NONCE, RequestSignature.HEADER_SIGNATURE)
+            listOf(RequestSignature.HEADER_SESSION, RequestSignature.HEADER_TIMESTAMP, RequestSignature.HEADER_NONCE, RequestSignature.HEADER_SIGNATURE, stonks.app.admin.ADMIN_KEY_HEADER)
                 .forEach(::allowHeader)
             exposeHeader(RequestSignature.HEADER_SERVER_TIME)
             exposeHeader(HttpHeaders.RetryAfter)

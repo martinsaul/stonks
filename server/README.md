@@ -62,6 +62,9 @@ STONKS_DB_URL=jdbc:postgresql://localhost:5432/stonks STONKS_DEV_MODE=true ./gra
 | `STONKS_TRUST_PROXY` | `false` | Use `X-Forwarded-For` for client IPs (only behind your own proxy) |
 | `STONKS_CORS_ORIGINS` | – | Comma-separated allowed browser origins |
 | `STONKS_ALLOWED_EMAIL_DOMAINS` | built-in list | Override the email provider allowlist |
+| `STONKS_FIXED_OTP` | `111111` | Temporary: every sign-in code is this value. Empty disables it |
+| `STONKS_ADMIN_EMAILS` | – | Comma-separated admin emails |
+| `STONKS_ADMIN_KEY` | – | Admin key (≥ 16 chars), sent as `X-Stonks-Admin-Key`. The console is disabled without it |
 | `STONKS_DEV_TIME_SHIFT_HOURS` | `0` | Dev only (requires dev mode): shift the server clock to try the market outside hours |
 
 ## Server architecture

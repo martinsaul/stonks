@@ -185,8 +185,10 @@ class PlayerOrders(private val ticker: String, private val book: OrderBook) {
     /** Routes fills involving player orders back to their legs. */
     fun onFills(fills: List<Fill>) {
         for (f in fills) {
-            if (f.takerTrader.kind == TraderKind.PLAYER) fill(f.takerOrderId, f.quantity, f.price, maker = false)
-            if (f.makerTrader.kind == TraderKind.PLAYER) fill(f.makerOrderId, f.quantity, f.price, maker = true)
+            val takerPlayer = f.takerTrader.kind == TraderKind.PLAYER
+            val makerPlayer = f.makerTrader.kind == TraderKind.PLAYER
+            if (takerPlayer) fill(f.takerOrderId, f.quantity, f.price, maker = false, counterparty = f.makerTrader.id.takeIf { makerPlayer })
+            if (makerPlayer) fill(f.makerOrderId, f.quantity, f.price, maker = true, counterparty = f.takerTrader.id.takeIf { takerPlayer })
         }
     }
 
@@ -300,16 +302,16 @@ class PlayerOrders(private val ticker: String, private val book: OrderBook) {
         return (even * weight).roundToLong().coerceIn(0, leg.remaining)
     }
 
-    private fun fill(id: Long, qty: Long, price: Cents, maker: Boolean) {
+    private fun fill(id: Long, qty: Long, price: Cents, maker: Boolean, counterparty: Long? = null) {
         val leg = legs[id] ?: return
-        guarded(leg) { settleFill(leg, qty, price, maker) }
+        guarded(leg) { settleFill(leg, qty, price, maker, counterparty) }
     }
 
-    private fun settleFill(leg: Leg, qty: Long, price: Cents, maker: Boolean) {
+    private fun settleFill(leg: Leg, qty: Long, price: Cents, maker: Boolean, counterparty: Long? = null) {
         val (commission, realized) = gateway.settle(leg, qty, price)
         leg.filled += qty
         leg.notional = Math.addExact(leg.notional, Math.multiplyExact(qty, price))
-        events += FillEvent("$ticker-${++fillSeq}", leg.id, leg.accountId, ticker, leg.spec.side, qty, price, commission, realized, maker, leg.liquidation, day, tick)
+        events += FillEvent("$ticker-${++fillSeq}", leg.id, leg.accountId, ticker, leg.spec.side, qty, price, commission, realized, maker, leg.liquidation, day, tick, counterparty)
 
         // OCO: the first fill cancels the siblings.
         leg.ocoGroup?.let { g ->

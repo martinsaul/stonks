@@ -170,7 +170,7 @@ class Leaderboards(
                       f.trades, f.days, e.final_worth, e.final_return, e.final_rank
                from season_entries e
                join seasons s on s.id = e.season
-               join accounts a on a.id = e.account_id
+               join accounts a on a.id = e.account_id and a.banned_at is null
                left join lateral (
                    select count(*) as trades, count(distinct game_day) as days from fills
                    where account_id = e.account_id and not liquidation and at >= e.joined_at and at < s.ends_at
@@ -257,7 +257,7 @@ class Leaderboards(
             }
         }
         val statuses = db.read { c ->
-            c.query("select account_id, status from leaderboard_reviews") { rs -> rs.list { it.getLong(1) to it.getString(2) } }.toMap()
+            c.query("select r.account_id, r.status from leaderboard_reviews r join accounts a on a.id = r.account_id where a.banned_at is null") { rs -> rs.list { it.getLong(1) to it.getString(2) } }.toMap()
         }
         pending = statuses.values.count { it == "PENDING" }
         val approved = rich.filter { statuses[it.accountId] == "APPROVED" }

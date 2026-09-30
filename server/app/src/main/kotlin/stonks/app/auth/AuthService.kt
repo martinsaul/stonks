@@ -115,6 +115,7 @@ class AuthService(
                     }
                     VerifyResult.AliasRefused
                 }
+                existing?.bannedAt != null -> VerifyResult.Rejected("This account is suspended.")
                 existing != null -> {
                     // Includes Gmail dot variants: same inbox, same person, same account.
                     accounts.touchLogin(c, existing.id, now)

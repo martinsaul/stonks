@@ -28,12 +28,18 @@ sealed class Command(val accountId: Long, val arrival: Instant) {
     class Cancel(accountId: Long, arrival: Instant, val orderId: Long, val result: CompletableFuture<Boolean>) : Command(accountId, arrival)
     /** An economy action; completes with null on success or the refusal reason. */
     class Economy(accountId: Long, arrival: Instant, val payload: EconomyPayload, val result: CompletableFuture<String?>) : Command(accountId, arrival)
+    /** A game-master action (logged like player inputs); [accountId] is the admin. */
+    class Admin(accountId: Long, arrival: Instant, val payload: String, val result: CompletableFuture<String?>) : Command(accountId, arrival)
+    /** A read-only look at engine state on the simulation thread (not logged). */
+    class Query(arrival: Instant, val read: (Market) -> Any?, val result: CompletableFuture<Any?>) : Command(0, arrival)
 
     fun fail(e: Throwable) = when (this) {
         is OpenAccount -> result.completeExceptionally(e)
         is Place -> result.completeExceptionally(e)
         is Cancel -> result.completeExceptionally(e)
         is Economy -> result.completeExceptionally(e)
+        is Admin -> result.completeExceptionally(e)
+        is Query -> result.completeExceptionally(e)
     }
 }
 
@@ -140,6 +146,13 @@ class TradingDesk(
                     val payload = cmd.payload.copy(at = cmd.arrival.toEpochMilli())
                     accepted += cmd to NewInput(market.day, applyTick, "economy", cmd.accountId, json.encodeToString(EconomyPayload.serializer(), payload))
                 }
+                is Command.Admin -> {
+                    accepted += cmd to NewInput(market.day, applyTick, "admin", cmd.accountId, cmd.payload)
+                }
+                is Command.Query -> {
+                    try { cmd.result.complete(cmd.read(market)) } catch (e: Exception) { cmd.result.completeExceptionally(e) }
+                    continue
+                }
                 is Command.Cancel -> {
                     val mine = openOrders[cmd.accountId]?.values?.any { it.id == cmd.orderId || it.groupId == cmd.orderId } == true
                     if (!mine) {
@@ -166,6 +179,8 @@ class TradingDesk(
                 is Command.OpenAccount -> cmd.result.complete(true)
                 is Command.Cancel -> cmd.result.complete(reason == null)
                 is Command.Economy -> cmd.result.complete(reason)
+                is Command.Admin -> cmd.result.complete(reason)
+                is Command.Query -> {}
                 is Command.Place -> if (reason != null) cmd.fail(RequestError(reason)) else {
                     val p = json.decodeFromString(PlacePayload.serializer(), input.payload)
                     val executesAt = estimateFor(p)
@@ -173,7 +188,7 @@ class TradingDesk(
                 }
             }
         }
-        return accepted.mapTo(HashSet()) { it.first.accountId }
+        return accepted.filter { it.first !is Command.Admin }.mapTo(HashSet()) { it.first.accountId }
     }
 
     /** Re-applies a logged input (after a restart). */
@@ -213,6 +228,7 @@ class TradingDesk(
                 val action = try { p.toEngine() } catch (e: RequestError) { return e.message }
                 market.economy(accountId, action, p.at, "in:$seq")
             }
+            "admin" -> market.admin(stonks.app.admin.AdminPayload.decode(payload))
             "cancel" -> if (market.cancelOrder(accountId, json.decodeFromString(CancelPayload.serializer(), payload).orderId)) null else "Order not found."
             else -> "Unknown input $kind"
         }
@@ -252,6 +268,7 @@ class TradingDesk(
                         notice(e.accountId, e.kind.name.lowercase(), e.detail, at)
                         economy += e
                     }
+                    AccountEvent.Kind.ADJUSTED -> notice(e.accountId, "adjusted", e.detail, at)
                     AccountEvent.Kind.ACHIEVEMENT -> {
                         notice(e.accountId, "achievement", "Badge earned: ${ACHIEVEMENTS[e.detail] ?: e.detail}!", at)
                         economy += e

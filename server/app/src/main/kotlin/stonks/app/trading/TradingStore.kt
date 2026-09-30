@@ -60,14 +60,15 @@ class TradingStore(private val db: Db) {
                 ps.executeBatch()
             }
             if (fills.isNotEmpty()) c.prepareStatement(
-                """insert into fills (id, order_id, account_id, ticker, side, quantity, price, commission, realized, maker, liquidation, game_day, tick, at)
-                   values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) on conflict (id) do nothing""",
+                """insert into fills (id, order_id, account_id, ticker, side, quantity, price, commission, realized, maker, liquidation, game_day, tick, at, counterparty_id)
+                   values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) on conflict (id) do nothing""",
             ).use { ps ->
                 for (f in fills) {
                     ps.setString(1, f.fillId); ps.setLong(2, f.orderId); ps.setLong(3, f.accountId); ps.setString(4, f.ticker)
                     ps.setString(5, f.side.name); ps.setLong(6, f.quantity); ps.setLong(7, f.price); ps.setLong(8, f.commission)
                     ps.setLong(9, f.realized); ps.setBoolean(10, f.maker); ps.setBoolean(11, f.liquidation)
                     ps.setInt(12, f.day); ps.setInt(13, f.tick); ps.setTimestamp(14, Timestamp.from(at))
+                    if (f.counterparty != null) ps.setLong(15, f.counterparty!!) else ps.setNull(15, java.sql.Types.BIGINT)
                     ps.addBatch()
                 }
                 ps.executeBatch()

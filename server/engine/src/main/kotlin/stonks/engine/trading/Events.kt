@@ -40,6 +40,8 @@ data class FillEvent(
     val liquidation: Boolean,
     val day: Int,
     val tick: Int,
+    /** The other player's account when both sides were players (collusion review). */
+    val counterparty: Long? = null,
 ) : EngineEvent
 
 /**

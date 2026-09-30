@@ -10,7 +10,9 @@ import stonks.app.db.update
 import java.sql.Connection
 import java.time.Instant
 
-data class Account(val id: Long, val email: String, val canonical: String, val createdAt: Instant, val displayName: String)
+data class Account(
+    val id: Long, val email: String, val canonical: String, val createdAt: Instant, val displayName: String, val bannedAt: Instant? = null,
+)
 
 /** Cosmetic badges (badges of shame live in the engine; see Standing). */
 enum class Badge(val title: String, val description: String) {
@@ -92,7 +94,7 @@ class AccountStore(private val db: Db) {
     }
 
     private fun map(rs: java.sql.ResultSet) =
-        Account(rs.getLong("id"), rs.getString("email"), rs.getString("email_canonical"), rs.instant("created_at")!!, rs.getString("display_name"))
+        Account(rs.getLong("id"), rs.getString("email"), rs.getString("email_canonical"), rs.instant("created_at")!!, rs.getString("display_name"), rs.instant("banned_at"))
 
     companion object {
         private val NAME = Regex("^[A-Za-z0-9_-]{3,20}$")

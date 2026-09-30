@@ -28,6 +28,10 @@ data class AppConfig(
      * string to use random codes.
      */
     val fixedOtp: String? = "111111",
+    /** Accounts (by email) allowed into the admin console. */
+    val adminEmails: Set<String> = emptySet(),
+    /** Second factor for admin calls (X-Stonks-Admin-Key); admin is disabled without it. */
+    val adminKey: String? = null,
     /** Development only: shifts the server clock, e.g. to try the market outside hours. */
     val devTimeShiftHours: Long = 0,
     /** Overrides the built-in email provider allowlist when non-empty. */
@@ -77,6 +81,8 @@ data class AppConfig(
                 devTimeShiftHours = str("DEV_TIME_SHIFT_HOURS")?.toLong() ?: 0,
                 fixedOtp = env["STONKS_FIXED_OTP"].let { if (it == null) "111111" else it.trim().ifEmpty { null } },
                 allowedEmailDomains = list("ALLOWED_EMAIL_DOMAINS").map { it.lowercase() }.toSet(),
+                adminEmails = list("ADMIN_EMAILS").map { it.lowercase() }.toSet(),
+                adminKey = str("ADMIN_KEY"),
             )
             if (c.otpPepper == DEV_PEPPER && !c.devMode) {
                 log.warn("STONKS_OTP_PEPPER is not set; using the development default. Set it in production.")
@@ -86,6 +92,8 @@ data class AppConfig(
                 require(Regex("^[0-9]{6}$").matches(it)) { "STONKS_FIXED_OTP must be 6 digits (or empty to disable)" }
                 log.warn("STONKS_FIXED_OTP is set: every sign-in code is {}. Anyone can sign in as any address. Temporary only.", it)
             }
+            c.adminKey?.let { require(it.length >= 16) { "STONKS_ADMIN_KEY must be at least 16 characters" } }
+            if (c.adminEmails.isNotEmpty() && c.adminKey == null) log.warn("STONKS_ADMIN_EMAILS is set but STONKS_ADMIN_KEY is not: the admin console is disabled.")
             require(c.devTimeShiftHours == 0L || c.devMode) { "STONKS_DEV_TIME_SHIFT_HOURS requires STONKS_DEV_MODE" }
             return c
         }

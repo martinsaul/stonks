@@ -65,6 +65,11 @@ class SessionStore(
         return session?.takeIf { it.expiresAt.isAfter(now) }
     }
 
+    /** Drops cached sessions of [accountId] (after a ban revoked them in the database). */
+    fun forgetAccount(accountId: Long) {
+        cache.entries.removeIf { it.value.first.accountId == accountId }
+    }
+
     fun revoke(c: Connection, id: String, now: Instant) {
         c.update("update sessions set revoked_at = ? where id = ? and revoked_at is null", now, id)
         cache.remove(id)

@@ -39,6 +39,8 @@ services:
       # Only reachable through the web proxy, which sets X-Forwarded-For.
       STONKS_TRUST_PROXY: "true"
       STONKS_CORS_ORIGINS: ${STONKS_CORS_ORIGINS:-}
+      STONKS_ADMIN_EMAILS: ${STONKS_ADMIN_EMAILS:-}
+      STONKS_ADMIN_KEY: ${STONKS_ADMIN_KEY:-}
     expose:
       - "8080"
 

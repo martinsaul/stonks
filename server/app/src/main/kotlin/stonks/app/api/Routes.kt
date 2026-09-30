@@ -10,6 +10,8 @@ import io.ktor.server.routing.post
 import io.ktor.server.routing.route
 import kotlinx.serialization.Serializable
 import stonks.app.App
+import stonks.app.admin.adminRoutes
+import stonks.app.admin.isAdmin
 import stonks.app.auth.OtpRequestResult
 import stonks.app.auth.VerifyResult
 import stonks.app.market.CalendarEvent
@@ -31,7 +33,11 @@ import java.util.concurrent.ConcurrentHashMap
 @Serializable data class OtpVerify(val challengeId: String, val code: String, val publicKey: String)
 @Serializable data class LoginResponse(val sessionId: String, val accountId: Long, val expiresAt: String, val serverTime: Long)
 @Serializable data class BadgeDto(val badge: String, val title: String, val description: String, val count: Int, val lastAwardedAt: String)
-@Serializable data class MeResponse(val accountId: Long, val email: String, val createdAt: String, val badges: List<BadgeDto>, val displayName: String)
+@Serializable data class MeResponse(
+    val accountId: Long, val email: String, val createdAt: String, val badges: List<BadgeDto>, val displayName: String,
+    /** Listed as an admin (admin calls also need the admin key). */
+    val admin: Boolean = false,
+)
 @Serializable data class MarketResponse(
     val time: String, val session: SessionInfo, val regime: String, val index: IndexQuote, val quotes: List<Quote>,
     val benchmarkRate: Double, val latestNewsId: Long,
@@ -94,7 +100,7 @@ fun Route.signedRoutes(app: App) {
             val badges = app.accounts.badges(account.id).map {
                 BadgeDto(it.badge.name, it.badge.title, it.badge.description, it.count, it.lastAwardedAt.toString())
             }
-            call.respond(MeResponse(account.id, account.email, account.createdAt.toString(), badges, account.displayName))
+            call.respond(MeResponse(account.id, account.email, account.createdAt.toString(), badges, account.displayName, app.isAdmin(account.email)))
         }
 
         get("/market") {
@@ -158,6 +164,7 @@ fun Route.signedRoutes(app: App) {
 
         tradingRoutes(app)
         economyRoutes(app)
+        adminRoutes(app)
     } }
 }
 
