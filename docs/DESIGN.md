@@ -198,8 +198,15 @@ Two kinds, often combined: **punctual** (one-off jump/gap) and
 | Sector events                       | random             | Hit a whole sector                               |
 | Macro events (rates, recession…)    | scheduled / random | Market-wide; can change market regime            |
 
-- Every event produces a **parody news headline** in the feed.
-- **Rumors:** some events are rumored before they happen; some rumors are false.
+- **Frequency (starting values, admin-tunable):**
+  - Minor news (±1–5%): ~1 per company per real week (~7 headlines/day market-wide).
+  - Major shocks (±10–60%): ~once per 2–3 real months per company (~4–6/week total).
+  - Sector events: ~1 per week. Earnings: every ~4 real weeks per company.
+  - Weekends: about half the random-event rate.
+- Every event produces a **parody news headline** from server-side templates
+  (admin-triggered events use the same templates, so they look like any news).
+- **Rumors:** ~30% of major events are rumored 1–3 game days ahead; ~30% of all
+  rumors are false.
 
 ## Money sinks
 
