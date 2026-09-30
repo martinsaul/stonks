@@ -567,8 +567,13 @@ Repository layout: `docs/`, `api/` (shared schema → Kotlin + TS types),
    forced bankruptcy, badges of shame & clearing, starting-cash upgrades, bonds,
    display names & profiles, Millionaires (review queue) and monthly seasons,
    achievements (Midas'/Sadim's Hands, milestones, season finishes).
-7. **Admin console** — game master tools, player review & rollback, economy
-   dashboard.
+7. **Admin console** ✅ — every game-master action (strategies, events and
+   scheduled shocks with headlines, rate/regime, halts, depth/volatility/borrow
+   tuning, splits, special dividends, buybacks, IPOs, bonds) logged and replayed
+   like player inputs and audited; player search, flags (shared IPs, repeated
+   counterparties, alias attempts), bans, voided fills, cash adjustments;
+   Millionaire reviews; economy dashboard; world rollback to a snapshot.
+   Access needs a listed admin email **and** the admin key.
 
 ## Open topics
 

@@ -266,3 +266,29 @@ table.data th button { border: 0; background: none; font: inherit; color: inheri
 .card.danger { border-color: var(--down); }
 .bond { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--grid); }
 .you-row td { background: var(--surface-2); font-weight: 600; }
+
+/* Admin */
+.admin-tabs { margin-bottom: 16px; width: fit-content; max-width: 100%; }
+.admin-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; margin: 10px 0; }
+.admin-row > input, .admin-row > select, .admin-field input, .admin-field select, .card-head > input {
+  height: 36px; border: 1px solid var(--border); border-radius: 8px; padding: 0 10px; background: var(--surface); color: var(--text); min-width: 0;
+}
+.admin-row > .grow { flex: 1 1 200px; }
+.admin-field { display: grid; gap: 4px; font-size: 13px; font-weight: 600; margin: 8px 0; }
+.admin-field.wide input { width: 100%; }
+.admin-field .hint { font-weight: 400; }
+.check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
+.flags { margin: 0; padding-left: 18px; font-size: 13px; }
+tr.muted td { color: var(--text-3); }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+.tile { border: 1px solid var(--border); border-radius: 12px; background: var(--surface); padding: 12px 14px; display: grid; gap: 4px; }
+.tile > span:first-child { color: var(--text-2); font-size: 13px; }
+.tile strong { font-size: 20px; font-variant-numeric: tabular-nums; }
+.trends { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+.trend { margin: 0; min-width: 0; }
+.trend figcaption { font-size: 13px; margin-bottom: 4px; }
+details.card > summary { cursor: pointer; list-style: none; padding-bottom: 14px; }
+@media (min-width: 1001px) {
+  .admin-companies { grid-template-columns: minmax(0, 1fr) 420px; }
+  .admin-companies > aside { position: sticky; top: 16px; align-self: start; max-height: calc(100vh - 32px); overflow-y: auto; }
+}

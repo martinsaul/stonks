@@ -890,6 +890,8 @@ export interface components {
         MeResponse: {
             /** @description Public name (emails are never shown to others) */
             displayName: string;
+            /** @description Listed as an admin (admin calls also need the admin key) */
+            admin?: boolean;
             /** Format: int64 */
             accountId: number;
             email: string;

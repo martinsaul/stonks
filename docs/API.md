@@ -162,6 +162,24 @@ improvement. Unfilled limits rest in the book. Buying power is checked again at
 execution. The WebSocket `tick` frame carries your `account` (the same shape as
 `/portfolio`), so live P/L and order status need no polling.
 
+## Admin (game master)
+
+Not part of the public API. Every call needs a normal signed session for an email
+listed in `STONKS_ADMIN_EMAILS` **and** the `X-Stonks-Admin-Key` header matching
+`STONKS_ADMIN_KEY` (the console is disabled without a key). The key is a second
+factor: while every sign-in code is `111111`, an email proves nothing. `403` otherwise.
+
+| Method | Path | Notes |
+|--------|------|-------|
+| `GET`  | `/admin/overview` | Tickers with strategy, status and controls; scheduled items (including hidden random events); bonds; enum values. |
+| `POST` | `/admin/actions` | `{"type": …}`: `strategy`, `event`, `shock`, `rate`, `regime`, `halt`, `tune`, `split`, `dividend`, `buyback`, `ipo`, `bonds`, `void_fill`, `adjust_cash`. `at` (ISO) schedules events and shocks. Logged like player inputs and audited. |
+| `GET`  | `/admin/players?q=` · `/admin/players/{id}` | Search; detail with portfolio, sessions, fills, economy events, flags. |
+| `POST` | `/admin/players/{id}/ban` | `{"banned", "reason"}`: revokes sessions, blocks sign-in, hides from leaderboards. |
+| `POST` | `/admin/fills/{id}/void` | Reverses a fill at its price and refunds the commission. |
+| `GET`/`POST` | `/admin/reviews` · `/admin/reviews/{id}` | Millionaire review queue: `{"status": "APPROVED" \| "REJECTED" \| "PENDING"}`. |
+| `GET`  | `/admin/economy` · `/admin/audit` · `/admin/snapshots` | Stats after every session; audit log; world snapshots. |
+| `POST` | `/admin/rollback` | `{"snapshotId", "confirm": "ROLLBACK"}`: restores that snapshot on restart, discarding every later input. The server restarts. |
+
 ## Rate limits
 
 | Budget | Default |

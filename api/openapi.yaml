@@ -236,6 +236,7 @@ components:
       required: [accountId, email, createdAt, badges, displayName]
       properties:
         displayName: { type: string, description: Public name (emails are never shown to others) }
+        admin: { type: boolean, description: Listed as an admin (admin calls also need the admin key) }
         accountId: { type: integer, format: int64 }
         email: { type: string }
         createdAt: { type: string, format: date-time }

@@ -67,7 +67,7 @@ function Search() {
 const THEME_NEXT: Record<ThemeChoice, ThemeChoice> = { system: "light", light: "dark", dark: "system" };
 const THEME_LABEL: Record<ThemeChoice, string> = { system: "Auto", light: "Light", dark: "Dark" };
 
-export function Header({ email, onSignOut }: { email?: string; onSignOut: () => void }) {
+export function Header({ email, admin, onSignOut }: { email?: string; admin?: boolean; onSignOut: () => void }) {
   const theme = useThemeChoice();
   return (
     <header className="topbar">
@@ -79,6 +79,7 @@ export function Header({ email, onSignOut }: { email?: string; onSignOut: () => 
           <NavLink to="/calendar">Calendar</NavLink>
           <NavLink to="/leaderboards">Leaders</NavLink>
           <NavLink to="/portfolio">Portfolio</NavLink>
+          {admin && <NavLink to="/admin">Admin</NavLink>}
         </nav>
         <Search />
         <div className="spacer" />

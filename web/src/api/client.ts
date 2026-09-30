@@ -30,6 +30,7 @@ interface StoredSession {
 
 const SESSION_KEY = "stonks.session";
 const OFFSET_KEY = "stonks.clockOffset";
+const ADMIN_KEY = "stonks.adminKey";
 
 /**
  * Signs every request with the device key (docs/API.md). Keeps an estimate of the
@@ -41,6 +42,17 @@ class ApiClient {
   private session?: StoredSession;
   private clockOffset = Number(localStorage.getItem(OFFSET_KEY)) || 0;
   private listeners = new Set<() => void>();
+
+  /** Admin key for /admin calls; kept for this browser tab only. */
+  get adminKey(): string | null {
+    try { return sessionStorage.getItem(ADMIN_KEY); } catch { return null; }
+  }
+
+  setAdminKey(key: string | null) {
+    try {
+      if (key) sessionStorage.setItem(ADMIN_KEY, key); else sessionStorage.removeItem(ADMIN_KEY);
+    } catch { /* storage unavailable: the key lasts until reload */ }
+  }
 
   /** Server time estimate in epoch milliseconds. */
   now(): number {
@@ -146,6 +158,7 @@ class ApiClient {
         "X-Stonks-Timestamp": String(ts),
         "X-Stonks-Nonce": nonce,
         "X-Stonks-Signature": signature,
+        ...(path.startsWith("/api/v1/admin") && this.adminKey ? { "X-Stonks-Admin-Key": this.adminKey } : {}),
       },
     });
     if (res.ok) return (res.status === 204 ? undefined : await res.json()) as T;
@@ -181,6 +194,7 @@ class ApiClient {
     this.session = undefined;
     this.key = undefined;
     localStorage.removeItem(SESSION_KEY);
+    this.setAdminKey(null);
     await clearDeviceKey();
     if (wasSignedIn) this.listeners.forEach((l) => l());
     return false;

@@ -1,4 +1,5 @@
 import { CalendarPage } from "./pages/Calendar";
+import { AdminPage } from "./pages/admin/AdminPage";
 import { LeaderboardsPage } from "./pages/Leaderboards";
 import { PlayerPage } from "./pages/Player";
 import { useEffect, useState } from "react";
@@ -18,6 +19,7 @@ import { Screener } from "./pages/Screener";
 export function App() {
   const [state, setState] = useState<"loading" | "in" | "out">("loading");
   const [email, setEmail] = useState<string>();
+  const [admin, setAdmin] = useState(false);
 
   useEffect(() => {
     api.restore().then((ok) => setState(ok ? "in" : "out"));
@@ -25,7 +27,7 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (state === "in") api.get<MeResponse>("/api/v1/me").then((m) => setEmail(m.email), () => undefined);
+    if (state === "in") api.get<MeResponse>("/api/v1/me").then((m) => { setEmail(m.email); setAdmin(m.admin ?? false); }, () => undefined);
   }, [state]);
 
   if (state === "loading") return null;
@@ -34,7 +36,7 @@ export function App() {
   return (
     <BrowserRouter>
       <MarketProvider>
-        <Header email={email} onSignOut={() => void api.signOut()} />
+        <Header email={email} admin={admin} onSignOut={() => void api.signOut()} />
         <MarginBanner />
         <main>
           <Routes>
@@ -45,6 +47,7 @@ export function App() {
             <Route path="/calendar" element={<CalendarPage />} />
             <Route path="/leaderboards" element={<LeaderboardsPage />} />
             <Route path="/player/:name" element={<PlayerPage />} />
+            <Route path="/admin" element={<AdminPage />} />
             <Route path="/account" element={<Account />} />
             <Route path="*" element={<div className="empty">Page not found. <Link to="/">Back to markets</Link></div>} />
           </Routes>
