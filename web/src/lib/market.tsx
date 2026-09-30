@@ -10,6 +10,9 @@ export interface MarketData {
   index: IndexQuote;
   quotes: Quote[];
   byTicker: Map<string, Quote>;
+  /** Central bank rate, percent. */
+  benchmarkRate: number;
+  latestNewsId: number;
 }
 
 const Ctx = createContext<{ market?: MarketData; error?: string }>({});
@@ -22,6 +25,19 @@ export function MarketProvider({ children }: { children: ReactNode }) {
   const [base, setBase] = useState<MarketResponse>();
   const [error, setError] = useState<string>();
   const frame = useFeedFrame();
+  const [listings, setListings] = useState<number>();
+
+  // Companies listed or delisted: reload the list (and resubscribe).
+  useEffect(() => {
+    if (frame?.listings === undefined) return;
+    if (listings !== undefined && frame.listings !== listings) {
+      api.get<MarketResponse>("/api/v1/market").then((m) => {
+        setBase(m);
+        feed.want({ quotes: m.quotes.map((q) => q.ticker), depth: [] });
+      }, () => {});
+    }
+    setListings(frame.listings);
+  }, [frame?.listings]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     let cancelled = false;
@@ -53,6 +69,8 @@ export function MarketProvider({ children }: { children: ReactNode }) {
       index: useFrame ? frame.index : base.index,
       quotes: base.quotes.map((q) => byTicker.get(q.ticker) ?? q),
       byTicker,
+      benchmarkRate: useFrame ? frame.benchmarkRate : base.benchmarkRate,
+      latestNewsId: Math.max(base.latestNewsId, frame?.latestNewsId ?? 0),
     };
   }, [base, frame]);
 

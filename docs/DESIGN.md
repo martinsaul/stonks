@@ -558,8 +558,11 @@ Repository layout: `docs/`, `api/` (shared schema → Kotlin + TS types),
    portfolio, commissions & plan unlocks, margin & liquidation, shorts with
    borrow pool & fees, daily interest; write-ahead input log with replay;
    trade ticket, portfolio page, live notices.
-5. **Living market** — events & rumors, earnings & fundamentals, corporate
-   actions, company lifecycle & IPOs, news feed, copycats/inversecats.
+5. **Living market** ✅ — events & rumors (some false), quarterly earnings with
+   consensus and guidance, EPS/P-E, dividends (25% of companies; ex-date and
+   pay date, shorts pay), central bank rate decisions, sector news, splits and
+   reverse splits, distress → bankruptcy/bailout/take-private, buyouts, IPO
+   replacements, news feed and calendar, copycats/inversecats.
 6. **Player economy** — claims, resets & cooldowns, bankruptcy, badges & alias
    trap, starting-cash upgrades, bonds, leaderboards, achievements.
 7. **Admin console** — game master tools, player review & rollback, economy

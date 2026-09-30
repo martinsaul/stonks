@@ -76,6 +76,7 @@ export function Header({ email, onSignOut }: { email?: string; onSignOut: () => 
         <nav className="nav" aria-label="Main">
           <NavLink to="/" end>Markets</NavLink>
           <NavLink to="/screener">Screener</NavLink>
+          <NavLink to="/calendar">Calendar</NavLink>
           <NavLink to="/portfolio">Portfolio</NavLink>
         </nav>
         <Search />
@@ -116,6 +117,10 @@ function MarketStrip() {
           {session.kind === "WEEKEND" && <span className="pill">Weekend session</span>}
         </span>
         <span className="pill" title="Market phase">{REGIMES[regime] ?? regime}</span>
+        <span className="strip-item" title="Central bank benchmark rate">
+          <span className="muted">Rate</span>
+          <strong className="num">{market.benchmarkRate.toFixed(2)}%</strong>
+        </span>
         <NetWorth />
         {status !== "open" && <span className="muted">Live feed {status === "connecting" ? "connecting…" : "reconnecting…"}</span>}
       </div>

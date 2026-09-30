@@ -95,8 +95,12 @@ tickers. The current state is sent immediately. After that, a `tick` frame arriv
 {"type": "tick", "time": "…", "session": {…}, "regime": "BULL",
  "index": {"name": "STONKS 50", "value": 1143.4, …},
  "quotes": [{"ticker": "FOOF", "last": 5146, "bid": 5145, "ask": 5147, …}],
- "depth": {"FOOF": {"bids": [{"price": 5145, "size": 1200}, …], "asks": […]}}}
+ "depth": {"FOOF": {"bids": [{"price": 5145, "size": 1200}, …], "asks": […]}},
+ "benchmarkRate": 4.25, "latestNewsId": 1834, "listings": -118023}
 ```
+
+When `latestNewsId` grows, fetch `/news?after=<last id you have>`. When `listings`
+changes, a company listed or delisted: reload `/market` and resubscribe.
 
 Between ticks, when only your own account changes (an order placed, filled or
 cancelled), you get `{"type": "account", "account": {…}}`. Other players don't.
@@ -110,10 +114,11 @@ close the connection.
 |--------|------|-------|
 | `POST` | `/auth/logout` | Revokes the current session. |
 | `GET`  | `/me` | Account and badges. |
-| `GET`  | `/market` | Session state, regime, index and all quotes. Prefer the WebSocket for live data. |
-| `GET`  | `/quotes/{ticker}` | Quote, profile, 52-week range, 30-day average volume and 10-level depth. |
-| `GET`  | `/quotes/{ticker}/candles` | `res` = `5s` \| `1m` \| `1d`; `from`/`to` (ISO or epoch ms); `limit` ≤ 2000 (default 500). Returns the newest candles in range, oldest first, plus the in-progress `live` candle. |
-
+| `GET`  | `/market` | Session state, regime, index, benchmark rate, latest news id and all listed quotes. Prefer the WebSocket for live data. |
+| `GET`  | `/quotes/{ticker}` | Quote, profile, 52-week range, 30-day average volume, 10-level depth and fundamentals (EPS TTM, P/E, dividend, ex/pay dates, next earnings and consensus, status, deal offer, pending split, short interest, borrow fee). Delisted tickers return `404` with the reason. |
+| `GET`  | `/quotes/{ticker}/candles` | `res` = `5s` \| `1m` \| `1d`; `from`/`to` (ISO or epoch ms); `limit` ≤ 2000 (default 500). Returns the newest candles in range, oldest first, plus the in-progress `live` candle. Adjusted for splits; delisted tickers keep their history. |
+| `GET`  | `/news` | Newest first. `ticker` (also returns market-wide and same-sector news), `before`/`after` (id paging), `limit` ≤ 100 (default 30). `tone` is positive/negative/neutral. Rumors may turn out false. |
+| `GET`  | `/calendar` | Next 60 game days: earnings (with consensus), ex-dividend and pay dates, splits, deal closes, IPOs, rate decisions; plus recent delistings. |
 | `GET`  | `/portfolio` | Cash, equity, buying power, margin, positions with P/L, open orders and recent notices. The first call opens the trading account with starting cash. |
 | `POST` | `/orders` | Place an order (see below). Returns `202` with the order ids and when it's expected to execute. |
 | `DELETE` | `/orders/{id}` | Cancel an open order, or a whole group (OCO/OTO/bracket) by group id. |

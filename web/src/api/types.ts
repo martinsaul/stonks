@@ -21,6 +21,12 @@ export type Notice = S["Notice"];
 export type LegRequest = S["LegRequest"];
 export type PlaceOrderRequest = S["PlaceOrderRequest"];
 export type PlaceOrderResponse = S["PlaceOrderResponse"];
+export type NewsItem = S["NewsItem"];
+export type NewsResponse = S["NewsResponse"];
+export type CalendarEvent = S["CalendarEvent"];
+export type CalendarResponse = S["CalendarResponse"];
+export type Delisting = S["Delisting"];
+export type Fundamentals = S["Fundamentals"];
 
 /** A WebSocket `tick` frame (every 5 s). Between ticks, `{type: "account", account}` frames update only the player's own account. */
 export interface TickFrame {
@@ -33,4 +39,10 @@ export interface TickFrame {
   depth: Record<string, Depth>;
   /** The signed-in player's portfolio (absent until the account exists). */
   account?: Portfolio | null;
+  /** Central bank rate, percent. */
+  benchmarkRate: number;
+  /** Newest news id: fetch `/news?after=` when it grows. */
+  latestNewsId: number;
+  /** Changes when companies list or delist: refetch `/market`. */
+  listings: number;
 }

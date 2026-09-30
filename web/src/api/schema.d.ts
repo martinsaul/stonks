@@ -312,6 +312,85 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/news": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** News, newest first. With a ticker, also market-wide and same-sector news. */
+        get: {
+            parameters: {
+                query?: {
+                    ticker?: string;
+                    /** @description Only items with a smaller id (paging back) */
+                    before?: number;
+                    /** @description Only items with a larger id (catching up) */
+                    after?: number;
+                    limit?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description News */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["NewsResponse"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/calendar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Upcoming earnings, dividends, splits, deal closes, IPOs and rate decisions (next 60 game days) */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Calendar */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CalendarResponse"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/portfolio": {
         parameters: {
             query?: never;
@@ -799,7 +878,95 @@ export interface components {
             openOrders: components["schemas"]["Order"][];
             notices: components["schemas"]["Notice"][];
         };
+        NewsItem: {
+            /** Format: int64 */
+            id: number;
+            /** Format: date-time */
+            time: string;
+            /** @description Game day */
+            day: number;
+            /** @description Null for market-wide or sector news */
+            ticker: string | null;
+            sector: string | null;
+            /** @enum {string} */
+            category: "EARNINGS" | "DIVIDEND" | "CORPORATE" | "REGULATORY" | "LEGAL" | "ANALYST" | "RUMOR" | "SECTOR" | "MACRO" | "DEAL" | "LISTING" | "SPLIT" | "DISTRESS";
+            headline: string;
+            /** @enum {string} */
+            tone: "positive" | "negative" | "neutral";
+        };
+        NewsResponse: {
+            news: components["schemas"]["NewsItem"][];
+        };
+        CalendarEvent: {
+            /**
+             * Format: date-time
+             * @description Session open
+             */
+            date: string;
+            day: number;
+            /** @enum {string} */
+            kind: "EARNINGS" | "EX_DIVIDEND" | "DIVIDEND_PAY" | "SPLIT" | "DEAL_CLOSE" | "IPO" | "RATE_DECISION";
+            ticker: string | null;
+            name: string | null;
+            detail: string;
+        };
+        Delisting: {
+            ticker: string;
+            name: string;
+            day: number;
+            /**
+             * Format: int64
+             * @description Settlement price (0 = bankruptcy)
+             */
+            price: number;
+            reason: string;
+        };
+        CalendarResponse: {
+            /** @description Percent */
+            benchmarkRate: number;
+            events: components["schemas"]["CalendarEvent"][];
+            delistings: components["schemas"]["Delisting"][];
+        };
+        Fundamentals: {
+            /** Format: int64 */
+            shares: number;
+            /** Format: int64 */
+            epsTtm: number | null;
+            pe: number | null;
+            /**
+             * Format: int64
+             * @description Quarterly
+             */
+            dividend: number;
+            /** @description Annual */
+            dividendYield: number | null;
+            /** Format: date-time */
+            exDividendDate: string | null;
+            /** Format: date-time */
+            dividendPayDate: string | null;
+            /** Format: date-time */
+            nextEarnings: string | null;
+            /** Format: int64 */
+            consensusEps: number;
+            /** @enum {string} */
+            status: "ACTIVE" | "DISTRESS" | "DEAL_PENDING";
+            /** Format: int64 */
+            dealOffer: number | null;
+            /** Format: date-time */
+            splitDate: string | null;
+            /** @description New shares per old share */
+            splitRatio: number | null;
+            /** Format: int64 */
+            shortInterest: number;
+            shortInterestPct: number;
+            /** @description Annual */
+            borrowFee: number;
+        };
         MarketResponse: {
+            /** @description Central bank rate */
+            benchmarkRate: number;
+            /** Format: int64 */
+            latestNewsId: number;
             /** Format: date-time */
             time: string;
             session: components["schemas"]["SessionInfo"];
@@ -829,6 +996,7 @@ export interface components {
                 avgVolume30d?: number | null;
             };
             depth: components["schemas"]["Depth"];
+            fundamentals: components["schemas"]["Fundamentals"];
         };
         CandlesResponse: {
             ticker: string;

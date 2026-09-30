@@ -72,6 +72,21 @@ paths:
         "200": { description: Candles, content: { application/json: { schema: { $ref: "#/components/schemas/CandlesResponse" } } } }
         "400": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
+  /api/v1/news:
+    get:
+      summary: News, newest first. With a ticker, also market-wide and same-sector news.
+      parameters:
+        - { name: ticker, in: query, schema: { type: string } }
+        - { name: before, in: query, description: Only items with a smaller id (paging back), schema: { type: integer, format: int64 } }
+        - { name: after, in: query, description: Only items with a larger id (catching up), schema: { type: integer, format: int64 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 30 } }
+      responses:
+        "200": { description: News, content: { application/json: { schema: { $ref: "#/components/schemas/NewsResponse" } } } }
+  /api/v1/calendar:
+    get:
+      summary: Upcoming earnings, dividends, splits, deal closes, IPOs and rate decisions (next 60 game days)
+      responses:
+        "200": { description: Calendar, content: { application/json: { schema: { $ref: "#/components/schemas/CalendarResponse" } } } }
   /api/v1/portfolio:
     get:
       summary: The player's portfolio (opens the trading account with starting cash on first use)
@@ -341,10 +356,75 @@ components:
         positions: { type: array, items: { $ref: "#/components/schemas/Position" } }
         openOrders: { type: array, items: { $ref: "#/components/schemas/Order" } }
         notices: { type: array, items: { $ref: "#/components/schemas/Notice" } }
+    NewsItem:
+      type: object
+      required: [id, time, day, ticker, sector, category, headline, tone]
+      properties:
+        id: { type: integer, format: int64 }
+        time: { type: string, format: date-time }
+        day: { type: integer, description: Game day }
+        ticker: { type: [string, "null"], description: Null for market-wide or sector news }
+        sector: { type: [string, "null"] }
+        category: { type: string, enum: [EARNINGS, DIVIDEND, CORPORATE, REGULATORY, LEGAL, ANALYST, RUMOR, SECTOR, MACRO, DEAL, LISTING, SPLIT, DISTRESS] }
+        headline: { type: string }
+        tone: { type: string, enum: [positive, negative, neutral] }
+    NewsResponse:
+      type: object
+      required: [news]
+      properties:
+        news: { type: array, items: { $ref: "#/components/schemas/NewsItem" } }
+    CalendarEvent:
+      type: object
+      required: [date, day, kind, ticker, name, detail]
+      properties:
+        date: { type: string, format: date-time, description: Session open }
+        day: { type: integer }
+        kind: { type: string, enum: [EARNINGS, EX_DIVIDEND, DIVIDEND_PAY, SPLIT, DEAL_CLOSE, IPO, RATE_DECISION] }
+        ticker: { type: [string, "null"] }
+        name: { type: [string, "null"] }
+        detail: { type: string }
+    Delisting:
+      type: object
+      required: [ticker, name, day, price, reason]
+      properties:
+        ticker: { type: string }
+        name: { type: string }
+        day: { type: integer }
+        price: { type: integer, format: int64, description: Settlement price (0 = bankruptcy) }
+        reason: { type: string }
+    CalendarResponse:
+      type: object
+      required: [benchmarkRate, events, delistings]
+      properties:
+        benchmarkRate: { type: number, description: Percent }
+        events: { type: array, items: { $ref: "#/components/schemas/CalendarEvent" } }
+        delistings: { type: array, items: { $ref: "#/components/schemas/Delisting" } }
+    Fundamentals:
+      type: object
+      required: [shares, epsTtm, pe, dividend, dividendYield, exDividendDate, dividendPayDate, nextEarnings, consensusEps, status, dealOffer, splitDate, splitRatio, shortInterest, shortInterestPct, borrowFee]
+      properties:
+        shares: { type: integer, format: int64 }
+        epsTtm: { type: [integer, "null"], format: int64 }
+        pe: { type: [number, "null"] }
+        dividend: { type: integer, format: int64, description: Quarterly, per share }
+        dividendYield: { type: [number, "null"], description: Annual, percent }
+        exDividendDate: { type: [string, "null"], format: date-time }
+        dividendPayDate: { type: [string, "null"], format: date-time }
+        nextEarnings: { type: [string, "null"], format: date-time }
+        consensusEps: { type: integer, format: int64 }
+        status: { type: string, enum: [ACTIVE, DISTRESS, DEAL_PENDING] }
+        dealOffer: { type: [integer, "null"], format: int64 }
+        splitDate: { type: [string, "null"], format: date-time }
+        splitRatio: { type: [number, "null"], description: New shares per old share }
+        shortInterest: { type: integer, format: int64 }
+        shortInterestPct: { type: number }
+        borrowFee: { type: number, description: Annual, percent }
     MarketResponse:
       type: object
-      required: [time, session, regime, index, quotes]
+      required: [time, session, regime, index, quotes, benchmarkRate, latestNewsId]
       properties:
+        benchmarkRate: { type: number, description: Central bank rate, percent }
+        latestNewsId: { type: integer, format: int64 }
         time: { type: string, format: date-time }
         session: { $ref: "#/components/schemas/SessionInfo" }
         regime: { type: string, enum: [NEUTRAL, BULL, BEAR, CRASH, BUBBLE] }
@@ -352,7 +432,7 @@ components:
         quotes: { type: array, items: { $ref: "#/components/schemas/Quote" } }
     QuoteResponse:
       type: object
-      required: [time, session, quote, profile, stats, depth]
+      required: [time, session, quote, profile, stats, depth, fundamentals]
       properties:
         time: { type: string, format: date-time }
         session: { $ref: "#/components/schemas/SessionInfo" }
@@ -372,6 +452,7 @@ components:
             low52w: { type: [integer, "null"], format: int64 }
             avgVolume30d: { type: [integer, "null"], format: int64 }
         depth: { $ref: "#/components/schemas/Depth" }
+        fundamentals: { $ref: "#/components/schemas/Fundamentals" }
     CandlesResponse:
       type: object
       required: [ticker, resolution, candles]

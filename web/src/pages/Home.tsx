@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Change } from "../components/Change";
+import { NewsList } from "../components/NewsList";
 import { QuoteTable } from "../components/QuoteTable";
 import { dateET, REGIMES, SECTORS, timeET } from "../lib/format";
 import { useMarket } from "../lib/market";
@@ -52,6 +53,11 @@ export function Home() {
           <div className="card-body"><QuoteTable quotes={movers} /></div>
         </section>
 
+        <section className="card" aria-labelledby="news">
+          <div className="card-head"><h2 id="news">Latest news</h2><Link to="/calendar">Calendar</Link></div>
+          <div className="card-body"><NewsList /></div>
+        </section>
+
         <section className="card" aria-labelledby="sectors">
           <div className="card-head"><h2 id="sectors">Sectors today</h2></div>
           <div className="card-body table-wrap">
@@ -84,6 +90,7 @@ export function Home() {
               )}
               <div><dt>Market phase</dt><dd>{REGIMES[market.regime] ?? market.regime}</dd></div>
               <div><dt>{market.index.name}</dt><dd><Change pct={market.index.changePct} /></dd></div>
+              <div><dt>Benchmark rate</dt><dd>{market.benchmarkRate.toFixed(2)}%</dd></div>
             </dl>
             <p className="hint">Weekdays 6:00–13:30 and 14:30–22:00 ET; weekends 10:00–20:00 ET (calmer).</p>
           </div>
