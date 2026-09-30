@@ -151,11 +151,12 @@ class Corporate(
         }
     }
 
-    private fun announceSplit(day: Int, ratio: Double) {
-        splitDay = day + 3
+    private fun announceSplit(day: Int, ratio: Double, delay: Int = 3) {
+        splitDay = day + delay
         splitRatio = ratio
-        val text = if (ratio >= 1) "$name announces a ${ratio.toInt()}-for-1 stock split, effective in 3 sessions"
-            else "$name announces a 1-for-${(1 / ratio).roundToLong()} reverse split, effective in 3 sessions, to stay listed"
+        val sessions = if (delay <= 1) "next session" else "in $delay sessions"
+        val text = if (ratio >= 1) "$name announces a ${ratio.toInt()}-for-1 stock split, effective $sessions"
+            else "$name announces a 1-for-${(1 / ratio).roundToLong()} reverse split, effective $sessions"
         news += NewsDraft(day, Int.MAX_VALUE, ticker, sector, NewsCategory.SPLIT, text)
     }
 
@@ -263,6 +264,40 @@ class Corporate(
         val who = if (takePrivate) "is being taken private" else "agrees to be acquired"
         news += NewsDraft(day, tick, ticker, sector, NewsCategory.DEAL, "$name $who for ${Headlines.money(offer)} per share in cash; deal expected to close in $closeIn sessions", jump)
         return jump
+    }
+
+    /** Admin: switch strategy now (with [strategy]) or at the next open. */
+    fun forceStrategy(type: StrategyType, strategy: StrategyEngine?) {
+        if (strategy != null) strategy.force(StrategyInstance.sample(type, rng)) else pendingStrategy = type
+    }
+
+    /** Admin: a take-private / acquisition offer at [premium] over the 20-day average. */
+    fun adminBuyout(day: Int, price: Double, premium: Double, closeIn: Int, completes: Boolean, strategy: StrategyEngine?): Double {
+        val base = if (closes.isEmpty()) price else average20
+        return startDeal(day, -1, price, strategy, (base * (1 + premium)).roundToLong(), closeIn, completes, takePrivate = false)
+    }
+
+    /** Admin: a special dividend of [amount] cents per share, ex-date next session. */
+    fun specialDividend(day: Int, amount: Long, delay: Int = 1) {
+        declaredDividend = amount
+        exDay = day + delay
+        payDay = day + delay + 2
+        news += NewsDraft(day, Int.MAX_VALUE, ticker, sector, NewsCategory.DIVIDEND,
+            "$name declares a special dividend of ${Headlines.money(amount)} per share (ex-dividend next session)")
+    }
+
+    /** Admin: a buyback retiring [fraction] of shares, with a price reaction. */
+    fun buyback(day: Int, tick: Int, fraction: Double): Double {
+        shares = (shares * (1 - fraction)).roundToLong().coerceAtLeast(1)
+        val jump = ln(1 + fraction * 0.5)
+        news += NewsDraft(day, tick, ticker, sector, NewsCategory.CORPORATE,
+            "$name announces a buyback of ${"%.1f".format(fraction * 100)}% of its shares", jump)
+        return jump
+    }
+
+    /** Admin: announce a split effective next session. */
+    fun forceSplit(day: Int, ratio: Double, delay: Int = 1) {
+        announceSplit(day, ratio, delay)
     }
 
     /** Called by the market when a pending deal fails to complete. */

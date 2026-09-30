@@ -4,6 +4,7 @@ import stonks.engine.book.Fill
 import stonks.engine.clock.Session
 import stonks.engine.clock.SessionKind
 import stonks.engine.company.Company
+import stonks.engine.company.Sector
 import stonks.engine.core.Rng
 import stonks.engine.snapshot.Snapshot
 import stonks.engine.snapshot.readList
@@ -229,7 +230,7 @@ class Market private constructor(
     /** Game day of the open session, or of the next session while closed. */
     val day: Int get() = sessionsCompleted
 
-    private fun borrowPool(t: TickerSim): Long = (t.corp.shares * config.borrowPoolFraction).toLong()
+    private fun borrowPool(t: TickerSim): Long = (t.corp.shares * (t.borrowPoolFraction ?: config.borrowPoolFraction)).toLong()
 
     fun borrowRate(ticker: String): Double {
         val t = tickers[ticker] ?: return 0.0
@@ -334,6 +335,7 @@ class Market private constructor(
         payDividends()
         recordDividendEntitlements(weekend)
         matureBonds()
+        applyShocks(-1)
 
         current = session
         val fills = tickers.mapValues { (ticker, t) ->
@@ -560,6 +562,174 @@ class Market private constructor(
         bondOfferings.removeIf { it.maturityDay < day - 60 }
     }
 
+    // ---- Game master -----------------------------------------------------------------
+
+    /** Market and sector shocks scheduled by admins. */
+    val scheduledShocks = ArrayList<ScheduledShock>()
+
+    /** Applies an admin action. Returns a rejection reason or null. */
+    fun admin(action: AdminAction): String? {
+        fun ticker(t: String) = tickerMap[t.uppercase()]
+        val open = current != null
+        val nowTick = if (open) tick else -1
+        return when (action) {
+            is AdminAction.SetStrategy -> {
+                val t = ticker(action.ticker) ?: return "Unknown ticker."
+                t.corp.forceStrategy(action.strategy, if (action.nextSession || !open) null else t.strategy)
+                null
+            }
+            is AdminAction.CompanyEvent -> {
+                val t = ticker(action.ticker) ?: return "Unknown ticker."
+                when (action.event) {
+                    "DISTRESS" -> { t.corp.enterDistress(day); null }
+                    "BUYOUT" -> {
+                        if (t.corp.status != stonks.engine.world.CompanyStatus.ACTIVE) return "Company is not active."
+                        t.shock(t.corp.adminBuyout(day, t.reference, 0.3, 10, completes = true, strategy = if (open) t.strategy else null))
+                        null
+                    }
+                    else -> {
+                        val type = runCatching { stonks.engine.world.EventType.valueOf(action.event) }.getOrNull() ?: return "Unknown event."
+                        val d = action.day ?: day
+                        val tk = action.tick ?: nowTick
+                        if (d < day || (d == day && open && tk < tick)) return "That time has passed."
+                        t.corp.schedule(stonks.engine.world.AgendaItem(d, tk, stonks.engine.world.AgendaKind.EVENT, type, category = type.category))
+                        null
+                    }
+                }
+            }
+            is AdminAction.Shock -> {
+                if (action.percent <= -95 || action.percent > 1000) return "Percent must be between -95 and 1000."
+                if (action.headline.isBlank() || action.headline.length > 200) return "A headline (up to 200 characters) is required."
+                when (action.scope) {
+                    AdminAction.Shock.Scope.TICKER -> ticker(action.target ?: "") ?: return "Unknown ticker."
+                    AdminAction.Shock.Scope.SECTOR -> Sector.entries.firstOrNull { it.name == action.target } ?: return "Unknown sector."
+                    AdminAction.Shock.Scope.MARKET -> {}
+                }
+                val d = action.day ?: day
+                val tk = action.tick ?: nowTick
+                if (d < day || (d == day && open && tk < tick)) return "That time has passed."
+                scheduledShocks += ScheduledShock(d, tk, action.scope, action.target?.uppercase(), kotlin.math.ln(1 + action.percent / 100), action.headline)
+                if (d == day && (!open || tk <= tick)) applyShocks(if (open) tick else -1)
+                null
+            }
+            is AdminAction.SetRate -> {
+                if (action.percent !in 0.0..10.0) return "Rate must be 0–10%."
+                val reaction = setBenchmarkRate(action.percent / 100)
+                tickerMap.values.forEach { it.shock(reaction * it.company.marketBeta) }
+                nextRateDay = day + RATE_INTERVAL
+                null
+            }
+            is AdminAction.SetRegime -> {
+                regime = action.regime
+                marketNews += NewsDraft(day, nowTick, null, null, NewsCategory.MACRO, REGIME_HEADLINES.getValue(action.regime))
+                null
+            }
+            is AdminAction.Halt -> {
+                val targets = if (action.ticker == null) tickerMap.values.toList() else listOf(ticker(action.ticker) ?: return "Unknown ticker.")
+                targets.forEach { it.halted = action.halted }
+                val what = action.ticker?.uppercase() ?: "all trading"
+                marketNews += NewsDraft(day, nowTick, action.ticker?.uppercase(), null, NewsCategory.MACRO,
+                    if (action.halted) "Exchange halts $what" else "Exchange resumes $what")
+                null
+            }
+            is AdminAction.Tune -> {
+                val t = ticker(action.ticker) ?: return "Unknown ticker."
+                action.volatility?.let { if (it !in 0.0..10.0) return "Volatility multiplier must be 0–10."; t.volMultiplier = it }
+                action.depth?.let { if (it !in 0.01..100.0) return "Depth multiplier must be 0.01–100."; t.depthMultiplier = it }
+                action.borrowPool?.let { if (it !in 0.0..1.0) return "Borrow pool must be 0–1."; t.borrowPoolFraction = it }
+                null
+            }
+            is AdminAction.Split -> {
+                val t = ticker(action.ticker) ?: return "Unknown ticker."
+                val r = action.ratio
+                val valid = r in listOf(2.0, 3.0, 4.0, 5.0, 10.0) || (r < 1 && (1 / r).let { Math.abs(it - Math.round(it)) < 1e-9 && Math.round(it) in 2..100 })
+                if (!valid) return "Ratio must be 2, 3, 4, 5 or 10 (split) or 1/n for a reverse split."
+                if (t.corp.splitDay >= 0) return "A split is already pending."
+                t.corp.forceSplit(day, r, delay = if (open) 1 else 0)
+                null
+            }
+            is AdminAction.SpecialDividend -> {
+                val t = ticker(action.ticker) ?: return "Unknown ticker."
+                if (action.amount !in 1..t.last) return "Amount must be between 1 cent and the share price."
+                if (t.corp.exDay >= day) return "A dividend is already pending."
+                t.corp.specialDividend(day, action.amount, delay = if (open) 1 else 0)
+                null
+            }
+            is AdminAction.Buyback -> {
+                val t = ticker(action.ticker) ?: return "Unknown ticker."
+                if (action.percent !in 0.1..25.0) return "Buyback must be 0.1–25% of shares."
+                t.shock(t.corp.buyback(day, nowTick, action.percent / 100))
+                null
+            }
+            is AdminAction.Ipo -> {
+                if (action.days !in 1..30) return "Days must be 1–30."
+                // While closed, `day` is already the next session.
+                val listingDay = day + action.days - if (open) 0 else 1
+                val company = Ipo.create(listingDay, usedTickers, (tickerMap.values.map { it.company.name } + ipoPipeline.map { it.company.name }).toSet(), worldRng, action.sector)
+                usedTickers += company.ticker
+                ipoPipeline += PendingIpo(listingDay, company)
+                marketNews += NewsDraft(day, nowTick, company.ticker, company.sector, NewsCategory.LISTING,
+                    "${company.name} (${company.ticker}) sets IPO at ${Headlines.money(company.initialPrice)} per share; trading begins in ${action.days} sessions")
+                null
+            }
+            is AdminAction.IssueBonds -> try {
+                issueBonds(action.name, action.returnPct / 100, action.windowDays, action.termDays, action.capPerPlayer)
+                null
+            } catch (_: IllegalArgumentException) {
+                "Invalid offering (return 0–100%, window 1–60, term 1–400 sessions, cap up to $1M)."
+            }
+            is AdminAction.VoidFill -> {
+                val a = ledger.account(action.accountId) ?: return "No trading account."
+                if (action.quantity <= 0 || action.price <= 0) return "Invalid fill."
+                try {
+                    ledger.applyFill(a, action.ticker, action.side.opposite, action.quantity, action.price, 0)
+                    a.cash = Math.addExact(a.cash, action.commission)
+                    a.totalCommissions -= action.commission
+                } catch (_: ArithmeticException) {
+                    return "Fill can't be reversed."
+                }
+                marketEvents += AccountEvent(a.id, AccountEvent.Kind.ADJUSTED,
+                    "An administrator voided your ${action.side.name.lowercase()} of ${action.quantity} ${action.ticker} @ ${Ledger.money(action.price)}")
+                null
+            }
+            is AdminAction.AdjustCash -> {
+                val a = ledger.account(action.accountId) ?: return "No trading account."
+                if (action.amount == 0L || kotlin.math.abs(action.amount) > 1_000_000_000_00L) return "Amount must be non-zero and at most $1B."
+                a.cash = try { Math.addExact(a.cash, action.amount) } catch (_: ArithmeticException) { return "Amount too large." }
+                marketEvents += AccountEvent(a.id, AccountEvent.Kind.ADJUSTED,
+                    "An administrator ${if (action.amount > 0) "credited" else "debited"} ${Ledger.money(kotlin.math.abs(action.amount))}: ${action.reason}", action.amount)
+                null
+            }
+        }
+    }
+
+    /** Applies scheduled shocks due at [atTick] of today (-1 = the open). */
+    private fun applyShocks(atTick: Int) {
+        if (scheduledShocks.isEmpty()) return
+        val due = scheduledShocks.filter { it.day < day || (it.day == day && it.tick <= atTick) }
+        if (due.isEmpty()) return
+        scheduledShocks.removeAll(due.toSet())
+        for (sh in due) {
+            val targets = when (sh.scope) {
+                AdminAction.Shock.Scope.TICKER -> listOfNotNull(tickerMap[sh.target])
+                AdminAction.Shock.Scope.SECTOR -> tickerMap.values.filter { it.company.sector.name == sh.target }
+                AdminAction.Shock.Scope.MARKET -> tickerMap.values.toList()
+            }
+            for (t in targets) {
+                val beta = when (sh.scope) {
+                    AdminAction.Shock.Scope.TICKER -> 1.0
+                    AdminAction.Shock.Scope.SECTOR -> t.company.sectorBeta
+                    AdminAction.Shock.Scope.MARKET -> t.company.marketBeta
+                }
+                t.shock(sh.logReturn * beta)
+            }
+            val sector = if (sh.scope == AdminAction.Shock.Scope.SECTOR) Sector.valueOf(sh.target!!) else null
+            val ticker = if (sh.scope == AdminAction.Shock.Scope.TICKER) sh.target else null
+            val category = if (sh.scope == AdminAction.Shock.Scope.MARKET) NewsCategory.MACRO else if (sector != null) NewsCategory.SECTOR else NewsCategory.CORPORATE
+            marketNews += NewsDraft(day, atTick, ticker, sector ?: ticker?.let { tickerMap[it]?.company?.sector }, category, sh.headline, sh.logReturn)
+        }
+    }
+
     // ---- Central bank ------------------------------------------------------------
 
     /** Applies a scheduled decision; returns the market's log-return reaction. */
@@ -721,6 +891,7 @@ class Market private constructor(
     }
 
     fun step(): List<TickReport> {
+        applyShocks(tick)
         val reports = tickers.values.map { it.step() }
         checkMargins()
         checkGameOver()
@@ -844,6 +1015,10 @@ class Market private constructor(
             writeInt(it.maturityDay); writeLong(it.capPerPlayer)
         }
         out.writeLong(nextBondId)
+        // v5: scheduled admin shocks.
+        out.writeList(scheduledShocks) {
+            writeInt(it.day); writeInt(it.tick); writeUTF(it.scope.name); writeUTF(it.target ?: ""); writeDouble(it.logReturn); writeUTF(it.headline)
+        }
         out.flush()
     }
 
@@ -877,6 +1052,13 @@ class Market private constructor(
         const val MAX_RATE = 0.10
         const val DIVIDEND_SHARE = 0.25
         const val INDEX_BASE = 1000.0
+        private val REGIME_HEADLINES = mapOf(
+            MarketRegime.NEUTRAL to "Markets settle as investors await direction",
+            MarketRegime.BULL to "Optimism sweeps markets: analysts declare a new bull run",
+            MarketRegime.BEAR to "Gloom spreads across markets as investors turn cautious",
+            MarketRegime.CRASH to "Panic grips markets in a broad sell-off",
+            MarketRegime.BUBBLE to "Euphoria takes hold: 'this time is different', say traders",
+        )
         private const val MAX_BUFFERED_NEWS = 5_000
         private const val IPO_SEED_BASE = 1_000_000L
 
@@ -919,6 +1101,11 @@ class Market private constructor(
                             BondOffering(readLong(), readUTF(), readDouble(), readInt(), readInt(), readInt(), readLong())
                         }
                         it.nextBondId = input.readLong()
+                    }
+                    if (version >= 5) {
+                        it.scheduledShocks += input.readList {
+                            ScheduledShock(readInt(), readInt(), AdminAction.Shock.Scope.valueOf(readUTF()), readUTF().ifEmpty { null }, readDouble(), readUTF())
+                        }
                     }
                 } else {
                     // Continue the old index (average of price relative to IPO price).

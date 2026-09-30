@@ -70,6 +70,23 @@ class TickerSim(
     )
         private set
 
+    // ---- Admin controls (persisted) ------------------------------------------------
+    /** Trading halted: no price moves, no fills; orders wait. */
+    var halted = false
+    /** Scales the curve's volatility (1 = normal). */
+    var volMultiplier = 1.0
+    /** Scales market-maker depth (1 = normal). */
+    var depthMultiplier = 1.0
+    /** Per-ticker borrow pool fraction of shares (null = market default). */
+    var borrowPoolFraction: Double? = null
+    /** Log return applied at the next tick (or open): admin shocks. */
+    private var pendingShock = 0.0
+
+    /** Moves the price by [logReturn] at the next tick (or the next open while closed). */
+    fun shock(logReturn: Double) {
+        pendingShock += logReturn
+    }
+
     /** Copycats and inversecats (their own random stream). */
     var crowd = Crowd(Rng(Rng.derive(seed, 2)))
         private set
@@ -181,7 +198,8 @@ class TickerSim(
         corp.onCurve(curveGap + extraGap)
         val news = corp.preMarket(day, session.kind == stonks.engine.clock.SessionKind.WEEKEND, reference, strategy, session.ticks)
         if (news != 0.0) crowd.onNews(news)
-        reference *= exp(curveGap + extraGap + news)
+        reference *= exp(curveGap + extraGap + news + pendingShock)
+        pendingShock = 0.0
 
         // Without an auction the market opens at the gapped level; bars before the first
         // trade must not carry yesterday's close (that would draw a false opening wick).
@@ -235,11 +253,19 @@ class TickerSim(
         val vm = s.kind.volatilityMultiplier * regime.volMultiplier
         val dt = 1.0 / (252.0 * ticks)
 
+        if (halted) {
+            candles.onTick(s.tickTime(tick), s.open, emptyList(), last)
+            val report = TickReport(company.ticker, tick, emptyList(), last, book.bestBid, book.bestAsk)
+            tick++
+            return report
+        }
+
         // 1. Curve return.
-        val idio = strategy.tickReturn(tick, ticks, vm, regimeDrift, rng.gaussian())
+        val idio = strategy.tickReturn(tick, ticks, vm * volMultiplier, regimeDrift, rng.gaussian())
         val common = (company.marketBeta * config.marketFactorVol * f.market[tick] +
             company.sectorBeta * config.sectorFactorVol * f.sector.getValue(company.sector)[tick]) * sqrt(dt) * vm
-        reference *= exp(idio + common)
+        reference *= exp(idio + common + pendingShock)
+        pendingShock = 0.0
         corp.onCurve(idio + common)
         val news = corp.jumpAt(day, tick, reference, strategy)
         if (news != 0.0) {
@@ -356,7 +382,7 @@ class TickerSim(
         val sigma = strategy.current.volAt(0.0)
         val halfSpread = reference * (config.baseHalfSpreadBps + config.volHalfSpreadBps * sigma) / 10_000.0
         val step = max(1.0, halfSpread)
-        val levelNotional = marketCap * config.liquidityFraction
+        val levelNotional = marketCap * config.liquidityFraction * depthMultiplier
         var lastBid = Long.MAX_VALUE
         var lastAsk = Long.MIN_VALUE
         bidLevels = 0
@@ -404,6 +430,8 @@ class TickerSim(
         playerOrders.writeTo(out)
         corp.writeTo(out)
         crowd.writeTo(out)
+        out.writeBoolean(halted); out.writeDouble(volMultiplier); out.writeDouble(depthMultiplier)
+        out.writeDouble(borrowPoolFraction ?: -1.0); out.writeDouble(pendingShock)
     }
 
     internal fun restore(input: DataInputStream, version: Int) {
@@ -429,6 +457,10 @@ class TickerSim(
                 company.ticker, company.name, company.sector, company.sharesOutstanding, last,
                 strategy.current.type, Rng(Rng.derive(seedForUpgrade, 3)), firstDay = day,
             )
+        }
+        if (version >= 5) {
+            halted = input.readBoolean(); volMultiplier = input.readDouble(); depthMultiplier = input.readDouble()
+            borrowPoolFraction = input.readDouble().takeIf { it >= 0 }; pendingShock = input.readDouble()
         }
     }
 
