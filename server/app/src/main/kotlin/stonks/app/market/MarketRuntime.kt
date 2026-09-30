@@ -83,6 +83,9 @@ class MarketRuntime(
     /** A player's latest portfolio (null until their trading account exists). */
     fun portfolio(accountId: Long): stonks.app.trading.PortfolioDto? = portfolios[accountId]
 
+    /** Every player's latest portfolio. */
+    fun allPortfolios(): Collection<stonks.app.trading.PortfolioDto> = portfolios.values
+
     /** Creates or restores the world and catches up to [clock]. Blocking. */
     fun bootstrap() {
         val world = worlds.load()
@@ -359,6 +362,10 @@ class MarketRuntime(
             fundamentals, calendar(date),
             market.delistings.takeLast(50).map { DelistingDto(it.ticker, it.name, it.day, it.price, it.reason) },
             market.benchmarkRate * 100, latestNewsId,
+            market.bondOfferings.filter { it.closeDay >= market.day }.map { o ->
+                BondOfferingDto(o.id, o.name, o.returnRate * 100, o.capPerPlayer, market.day in o.openDay..o.closeDay,
+                    date(o.closeDay), date(o.maturityDay))
+            },
         )
         published.set(state)
         for (l in listeners) {

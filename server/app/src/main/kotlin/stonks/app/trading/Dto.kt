@@ -78,6 +78,35 @@ data class PositionDto(
 )
 
 @Serializable
+data class BondDto(val offeringId: Long, val name: String, val principal: Long, val payout: Long, val maturityDay: Int, val maturesAt: String?)
+
+/** Economy standing (survives resets, except bonds). */
+@Serializable
+data class StandingDto(
+    /** Equity plus bonds at face value. */
+    val netWorth: Long,
+    val startingCash: Long,
+    val cashLevel: Int,
+    val nextUpgradeCost: Long?,
+    /** Outstanding badges of shame. */
+    val shame: Int,
+    val shameEver: Int,
+    val eternalShame: Boolean,
+    /** Cost to clear the highest badge (null if none or Eternal Shame). */
+    val clearCost: Long?,
+    val bankruptcies: Int,
+    /** Net worth is below $1k (the weekly claim is allowed when [nextClaimAt] has passed). */
+    val claimEligible: Boolean,
+    val nextClaimAt: String?,
+    val nextResetAt: String?,
+    /** Forced bankruptcy at or below this net worth. */
+    val gameOverAt: Long,
+    /** Starting cash of the current run (since opening, reset or bankruptcy). */
+    val runStartCash: Long,
+    val bonds: List<BondDto>,
+)
+
+@Serializable
 data class NoticeDto(val seq: Long, val kind: String, val text: String, val at: String)
 
 @Serializable
@@ -100,6 +129,7 @@ data class PortfolioDto(
     val commissionsPaid: Long,
     val interestPaid: Long,
     val positions: List<PositionDto>,
+    val standing: StandingDto,
     val openOrders: List<OrderDto>,
     val notices: List<NoticeDto>,
 )

@@ -51,6 +51,7 @@ class App(
         val recent = daily.takeLast(30)
         QuoteStats(daily.maxOfOrNull { it.high }, daily.minOfOrNull { it.low }, recent.takeIf { it.isNotEmpty() }?.let { r -> r.sumOf { it.volume } / r.size })
     }
+    val leaderboards = stonks.app.economy.Leaderboards(db, accounts, { market.allPortfolios() }, clock)
     private val housekeeping = Executors.newSingleThreadScheduledExecutor { r -> Thread(r, "housekeeping").apply { isDaemon = true } }
 
     /** Builds the world (or restores it) and starts the live market. */
@@ -61,6 +62,9 @@ class App(
         if (liveLoop) market.start()
         housekeeping.scheduleWithFixedDelay({ runCatching { sessions.flushLastSeen() } }, 60, 60, TimeUnit.SECONDS)
         housekeeping.scheduleWithFixedDelay({ runCatching { auth.cleanup() } }, 5, 60, TimeUnit.MINUTES)
+        housekeeping.scheduleWithFixedDelay({
+            runCatching { leaderboards.refresh() }.onFailure { org.slf4j.LoggerFactory.getLogger(App::class.java).error("leaderboards", it) }
+        }, 10, 60, TimeUnit.SECONDS)
     }
 
     override fun close() {

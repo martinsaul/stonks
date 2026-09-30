@@ -6,6 +6,8 @@ import org.slf4j.LoggerFactory
 import stonks.engine.core.Side
 import stonks.engine.sim.Market
 import stonks.engine.trading.AccountEvent
+import stonks.engine.trading.EconomyAction
+import stonks.engine.trading.EconomyRules
 import stonks.engine.trading.EngineEvent
 import stonks.engine.trading.FillEvent
 import stonks.engine.trading.LegStatus
@@ -24,17 +26,38 @@ sealed class Command(val accountId: Long, val arrival: Instant) {
     class OpenAccount(accountId: Long, arrival: Instant, val result: CompletableFuture<Boolean>) : Command(accountId, arrival)
     class Place(accountId: Long, arrival: Instant, val api: PlaceOrderRequest, val request: OrderRequest, val result: CompletableFuture<PlaceOrderResponse>) : Command(accountId, arrival)
     class Cancel(accountId: Long, arrival: Instant, val orderId: Long, val result: CompletableFuture<Boolean>) : Command(accountId, arrival)
+    /** An economy action; completes with null on success or the refusal reason. */
+    class Economy(accountId: Long, arrival: Instant, val payload: EconomyPayload, val result: CompletableFuture<String?>) : Command(accountId, arrival)
 
     fun fail(e: Throwable) = when (this) {
         is OpenAccount -> result.completeExceptionally(e)
         is Place -> result.completeExceptionally(e)
         is Cancel -> result.completeExceptionally(e)
+        is Economy -> result.completeExceptionally(e)
     }
 }
 
 @Serializable data class PlacePayload(val request: PlaceOrderRequest, val executeDay: Int, val executeTick: Int)
 @Serializable data class OpenPayload(val cash: Long)
 @Serializable data class CancelPayload(val orderId: Long)
+
+/** [action]: claim, reset, bankrupt, upgrade, clear_badge, buy_bond. [at]: arrival, epoch ms. */
+@Serializable data class EconomyPayload(val action: String, val at: Long = 0, val offeringId: Long? = null, val amount: Long? = null) {
+    fun toEngine(): EconomyAction = when (action) {
+        "claim" -> EconomyAction.Claim
+        "reset" -> EconomyAction.Reset
+        "bankrupt" -> EconomyAction.Bankrupt
+        "upgrade" -> EconomyAction.Upgrade
+        "clear_badge" -> EconomyAction.ClearBadge
+        "buy_bond" -> EconomyAction.BuyBond(offeringId ?: throw RequestError("offeringId is required."), amount ?: throw RequestError("amount is required."))
+        else -> throw RequestError("Unknown action '$action'.")
+    }
+
+    companion object {
+
+        val ACTIONS = setOf("claim", "reset", "bankrupt", "upgrade", "clear_badge", "buy_bond")
+    }
+}
 
 /** Where and when a new order will execute. */
 data class Schedule(val day: Int, val tick: Int, val executesAt: Instant?)
@@ -109,6 +132,14 @@ class TradingDesk(
                     val payload = PlacePayload(cmd.api, s.day, s.tick)
                     accepted += cmd to NewInput(market.day, applyTick, "place", cmd.accountId, json.encodeToString(PlacePayload.serializer(), payload))
                 }
+                is Command.Economy -> {
+                    if (market.ledger.account(cmd.accountId) == null) {
+                        cmd.result.complete("No trading account.")
+                        continue
+                    }
+                    val payload = cmd.payload.copy(at = cmd.arrival.toEpochMilli())
+                    accepted += cmd to NewInput(market.day, applyTick, "economy", cmd.accountId, json.encodeToString(EconomyPayload.serializer(), payload))
+                }
                 is Command.Cancel -> {
                     val mine = openOrders[cmd.accountId]?.values?.any { it.id == cmd.orderId || it.groupId == cmd.orderId } == true
                     if (!mine) {
@@ -134,6 +165,7 @@ class TradingDesk(
             when (cmd) {
                 is Command.OpenAccount -> cmd.result.complete(true)
                 is Command.Cancel -> cmd.result.complete(reason == null)
+                is Command.Economy -> cmd.result.complete(reason)
                 is Command.Place -> if (reason != null) cmd.fail(RequestError(reason)) else {
                     val p = json.decodeFromString(PlacePayload.serializer(), input.payload)
                     val executesAt = estimateFor(p)
@@ -176,6 +208,11 @@ class TradingDesk(
                 val request = try { p.request.toEngine() } catch (e: RequestError) { return e.message }
                 market.placeOrder(seq, accountId, request, p.executeDay, p.executeTick)
             }
+            "economy" -> {
+                val p = json.decodeFromString(EconomyPayload.serializer(), payload)
+                val action = try { p.toEngine() } catch (e: RequestError) { return e.message }
+                market.economy(accountId, action, p.at, "in:$seq")
+            }
             "cancel" -> if (market.cancelOrder(accountId, json.decodeFromString(CancelPayload.serializer(), payload).orderId)) null else "Order not found."
             else -> "Unknown input $kind"
         }
@@ -187,6 +224,7 @@ class TradingDesk(
         val at = now.toString()
         val orderRows = LinkedHashMap<Long, OrderUpdate>()
         val fills = ArrayList<FillEvent>()
+        val economy = ArrayList<AccountEvent>()
         for (e in events) {
             when (e) {
                 is OrderUpdate -> {
@@ -209,6 +247,15 @@ class TradingDesk(
                     AccountEvent.Kind.SPLIT -> notice(e.accountId, "split", e.detail, at)
                     AccountEvent.Kind.DELISTED -> notice(e.accountId, "delisted", e.detail, at)
                     AccountEvent.Kind.OPENED -> {}
+                    AccountEvent.Kind.CLAIMED, AccountEvent.Kind.RESET, AccountEvent.Kind.BANKRUPT, AccountEvent.Kind.UPGRADED,
+                    AccountEvent.Kind.BADGE_CLEARED, AccountEvent.Kind.BOND_BOUGHT, AccountEvent.Kind.BOND_MATURED -> {
+                        notice(e.accountId, e.kind.name.lowercase(), e.detail, at)
+                        economy += e
+                    }
+                    AccountEvent.Kind.ACHIEVEMENT -> {
+                        notice(e.accountId, "achievement", "Badge earned: ${ACHIEVEMENTS[e.detail] ?: e.detail}!", at)
+                        economy += e
+                    }
                 }
             }
         }
@@ -221,7 +268,13 @@ class TradingDesk(
             notice(f.accountId, "fill", "$what $qty ${f.ticker} @ ${"%,.2f".format(avg / 100.0)}", at)
         }
         val orderList = orderRows.values.toList()
+        val economyList = economy.filter { it.key != null }
         writer.execute {
+            try {
+                store.writeEconomy(economyList, now)
+            } catch (e: Exception) {
+                log.error("Failed to persist {} economy events", economyList.size, e)
+            }
             try {
                 store.writeEvents(orderList, fills, now)
             } catch (e: Exception) {
@@ -229,6 +282,31 @@ class TradingDesk(
             }
         }
         return events.mapTo(HashSet()) { it.accountId }
+    }
+
+    private fun standing(market: Market, a: stonks.engine.trading.Account, equity: Long): StandingDto {
+        val st = a.standing
+        val worth = equity + a.bondValue
+        val offerings = market.bondOfferings.associateBy { it.id }
+        val claimAt = st.lastClaimAt?.let { it + EconomyRules.CLAIM_INTERVAL_MS }
+        val start = EconomyRules.startingCash(st.cashLevel)
+        return StandingDto(
+            netWorth = worth,
+            startingCash = start,
+            cashLevel = st.cashLevel,
+            nextUpgradeCost = if (st.cashLevel < EconomyRules.MAX_LEVEL) EconomyRules.upgradeCost(st.cashLevel + 1) else null,
+            shame = st.shame,
+            shameEver = st.shameEver,
+            eternalShame = st.eternal,
+            clearCost = if (st.shame > 0 && !st.eternal) EconomyRules.clearCost(st.shame) else null,
+            bankruptcies = st.bankruptcies,
+            claimEligible = worth < EconomyRules.CLAIM_BELOW,
+            nextClaimAt = claimAt?.let { Instant.ofEpochMilli(it).toString() },
+            nextResetAt = st.nextResetAt.takeIf { it > 0 }?.let { Instant.ofEpochMilli(it).toString() },
+            gameOverAt = -EconomyRules.GAME_OVER_MULTIPLE * start,
+            runStartCash = st.runStartCash,
+            bonds = a.bonds.map { b -> BondDto(b.offeringId, offerings[b.offeringId]?.name ?: "Bond", b.principal, b.payout, b.maturityDay, estimator(b.maturityDay, -1)?.toString()) },
+        )
     }
 
     private fun notice(accountId: Long, kind: String, text: String, at: String) {
@@ -263,6 +341,7 @@ class TradingDesk(
                 initialMargin = a.plan.initialMargin, maintenanceMargin = a.plan.maintenanceMargin,
                 lifetimeRealized = a.lifetimeRealized, commissionsPaid = a.totalCommissions, interestPaid = a.totalInterest,
                 positions = positions,
+                standing = standing(market, a, f.equity),
                 openOrders = openOrders[a.id]?.values?.toList()?.reversed() ?: emptyList(),
                 notices = notices[a.id]?.toList()?.reversed() ?: emptyList(),
             )
@@ -284,6 +363,7 @@ class TradingDesk(
     }
 
     companion object {
+        val ACHIEVEMENTS = stonks.app.accounts.Badge.entries.associate { it.name to it.title }
         /** apply_tick for inputs applied while the market was closed. */
         const val CLOSED = -2
 

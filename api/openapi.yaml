@@ -87,6 +87,52 @@ paths:
       summary: Upcoming earnings, dividends, splits, deal closes, IPOs and rate decisions (next 60 game days)
       responses:
         "200": { description: Calendar, content: { application/json: { schema: { $ref: "#/components/schemas/CalendarResponse" } } } }
+  /api/v1/economy/{action}:
+    post:
+      summary: Economy actions (claim, reset, bankrupt, upgrade, clear-badge, buy-bond)
+      parameters:
+        - { name: action, in: path, required: true, schema: { type: string, enum: [claim, reset, bankrupt, upgrade, clear-badge, buy-bond] } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                offeringId: { type: integer, format: int64, description: buy-bond only }
+                amount: { type: integer, format: int64, description: buy-bond only, cents }
+      responses:
+        "200": { description: Done, content: { application/json: { schema: { $ref: "#/components/schemas/EconomyResult" } } } }
+        "400": { $ref: "#/components/responses/Error" }
+  /api/v1/bonds:
+    get:
+      responses:
+        "200": { description: Current bond offerings, content: { application/json: { schema: { $ref: "#/components/schemas/BondsResponse" } } } }
+  /api/v1/me/name:
+    post:
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [displayName], properties: { displayName: { type: string } } } } }
+      responses:
+        "200": { description: Renamed }
+        "400": { $ref: "#/components/responses/Error" }
+  /api/v1/leaderboards/millionaires:
+    get:
+      responses:
+        "200": { description: Reviewed millionaires, content: { application/json: { schema: { $ref: "#/components/schemas/MillionairesResponse" } } } }
+  /api/v1/leaderboards/season:
+    get:
+      parameters:
+        - { name: season, in: query, description: "YYYY-MM (default: current)", schema: { type: string } }
+      responses:
+        "200": { description: Season standings, content: { application/json: { schema: { $ref: "#/components/schemas/SeasonResponse" } } } }
+        "404": { $ref: "#/components/responses/Error" }
+  /api/v1/players/{name}:
+    get:
+      parameters:
+        - { name: name, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Public profile, content: { application/json: { schema: { $ref: "#/components/schemas/PlayerProfile" } } } }
+        "404": { $ref: "#/components/responses/Error" }
   /api/v1/portfolio:
     get:
       summary: The player's portfolio (opens the trading account with starting cash on first use)
@@ -187,8 +233,9 @@ components:
         lastAwardedAt: { type: string, format: date-time }
     MeResponse:
       type: object
-      required: [accountId, email, createdAt, badges]
+      required: [accountId, email, createdAt, badges, displayName]
       properties:
+        displayName: { type: string, description: Public name (emails are never shown to others) }
         accountId: { type: integer, format: int64 }
         email: { type: string }
         createdAt: { type: string, format: date-time }
@@ -336,7 +383,7 @@ components:
         at: { type: string, format: date-time }
     Portfolio:
       type: object
-      required: [accountId, plan, cash, equity, longValue, shortValue, availableEquity, buyingPower, marginDebt, maintenanceRequirement, initialMargin, maintenanceMargin, lifetimeRealized, commissionsPaid, interestPaid, positions, openOrders, notices]
+      required: [accountId, plan, cash, equity, longValue, shortValue, availableEquity, buyingPower, marginDebt, maintenanceRequirement, initialMargin, maintenanceMargin, lifetimeRealized, commissionsPaid, interestPaid, positions, openOrders, notices, standing]
       properties:
         accountId: { type: integer, format: int64 }
         plan: { type: string, enum: [ROOKIE, TRADER, PRO, WHALE] }
@@ -356,6 +403,124 @@ components:
         positions: { type: array, items: { $ref: "#/components/schemas/Position" } }
         openOrders: { type: array, items: { $ref: "#/components/schemas/Order" } }
         notices: { type: array, items: { $ref: "#/components/schemas/Notice" } }
+        standing: { $ref: "#/components/schemas/Standing" }
+    Bond:
+      type: object
+      required: [offeringId, name, principal, payout, maturityDay, maturesAt]
+      properties:
+        offeringId: { type: integer, format: int64 }
+        name: { type: string }
+        principal: { type: integer, format: int64 }
+        payout: { type: integer, format: int64 }
+        maturityDay: { type: integer }
+        maturesAt: { type: [string, "null"], format: date-time }
+    Standing:
+      type: object
+      description: Economy standing. Everything except bonds survives resets.
+      required: [netWorth, startingCash, cashLevel, nextUpgradeCost, shame, shameEver, eternalShame, clearCost, bankruptcies, claimEligible, nextClaimAt, nextResetAt, gameOverAt, runStartCash, bonds]
+      properties:
+        netWorth: { type: integer, format: int64, description: Equity plus bonds at face value }
+        startingCash: { type: integer, format: int64 }
+        cashLevel: { type: integer }
+        nextUpgradeCost: { type: [integer, "null"], format: int64 }
+        shame: { type: integer, description: Outstanding badges of shame }
+        shameEver: { type: integer }
+        eternalShame: { type: boolean }
+        clearCost: { type: [integer, "null"], format: int64 }
+        bankruptcies: { type: integer }
+        claimEligible: { type: boolean, description: Net worth below $1k }
+        nextClaimAt: { type: [string, "null"], format: date-time }
+        nextResetAt: { type: [string, "null"], format: date-time }
+        gameOverAt: { type: integer, format: int64, description: Forced bankruptcy at or below this net worth }
+        runStartCash: { type: integer, format: int64 }
+        bonds: { type: array, items: { $ref: "#/components/schemas/Bond" } }
+    EconomyResult:
+      type: object
+      required: [ok, standing]
+      properties:
+        ok: { type: boolean }
+        standing: { oneOf: [{ $ref: "#/components/schemas/Standing" }, { type: "null" }] }
+    BondOffering:
+      type: object
+      required: [id, name, returnPct, capPerPlayer, open, closesAt, maturesAt]
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
+        returnPct: { type: number }
+        capPerPlayer: { type: integer, format: int64 }
+        open: { type: boolean }
+        closesAt: { type: [string, "null"], format: date-time }
+        maturesAt: { type: [string, "null"], format: date-time }
+    BondsResponse:
+      type: object
+      required: [offerings]
+      properties:
+        offerings: { type: array, items: { $ref: "#/components/schemas/BondOffering" } }
+    Millionaire:
+      type: object
+      required: [rank, name, netWorth, shame, eternalShame, plan]
+      properties:
+        rank: { type: integer }
+        name: { type: string }
+        netWorth: { type: integer, format: int64 }
+        shame: { type: integer }
+        eternalShame: { type: boolean }
+        plan: { type: string }
+    MillionairesResponse:
+      type: object
+      required: [entries, yourStatus, pendingReviews]
+      properties:
+        entries: { type: array, items: { $ref: "#/components/schemas/Millionaire" } }
+        yourStatus: { type: [string, "null"], enum: [PENDING, APPROVED, REJECTED, null] }
+        pendingReviews: { type: integer }
+    SeasonEntry:
+      type: object
+      required: [rank, name, returnPct, netWorth, trades, activeDays, unranked]
+      properties:
+        rank: { type: [integer, "null"] }
+        name: { type: string }
+        returnPct: { type: [number, "null"] }
+        netWorth: { type: [integer, "null"], format: int64 }
+        trades: { type: integer }
+        activeDays: { type: integer }
+        unranked: { type: [string, "null"], description: Why the entry isn't ranked }
+    SeasonResponse:
+      type: object
+      required: [season, startsAt, endsAt, finalized, minTrades, minActiveDays, entries, you, seasons]
+      properties:
+        season: { type: string }
+        startsAt: { type: string, format: date-time }
+        endsAt: { type: string, format: date-time }
+        finalized: { type: boolean }
+        minTrades: { type: integer }
+        minActiveDays: { type: integer }
+        entries: { type: array, items: { $ref: "#/components/schemas/SeasonEntry" } }
+        you: { oneOf: [{ $ref: "#/components/schemas/SeasonEntry" }, { type: "null" }] }
+        seasons: { type: array, items: { type: string } }
+    PlayerProfile:
+      type: object
+      required: [name, joined, plan, netWorth, cashLevel, shame, eternalShame, bankruptcies, badges, seasons]
+      properties:
+        name: { type: string }
+        joined: { type: string, format: date-time }
+        plan: { type: [string, "null"] }
+        netWorth: { type: [integer, "null"], format: int64 }
+        cashLevel: { type: integer }
+        shame: { type: integer }
+        eternalShame: { type: boolean }
+        bankruptcies: { type: integer }
+        badges:
+          type: array
+          items:
+            type: object
+            required: [badge, title, description, count]
+            properties: { badge: { type: string }, title: { type: string }, description: { type: string }, count: { type: integer } }
+        seasons:
+          type: array
+          items:
+            type: object
+            required: [season, rank, returnPct]
+            properties: { season: { type: string }, rank: { type: [integer, "null"] }, returnPct: { type: [number, "null"] } }
     NewsItem:
       type: object
       required: [id, time, day, ticker, sector, category, headline, tone]

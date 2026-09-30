@@ -391,6 +391,247 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/economy/{action}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Economy actions (claim, reset, bankrupt, upgrade, clear-badge, buy-bond) */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    action: "claim" | "reset" | "bankrupt" | "upgrade" | "clear-badge" | "buy-bond";
+                };
+                cookie?: never;
+            };
+            requestBody?: {
+                content: {
+                    "application/json": {
+                        /**
+                         * Format: int64
+                         * @description buy-bond only
+                         */
+                        offeringId?: number;
+                        /**
+                         * Format: int64
+                         * @description buy-bond only
+                         */
+                        amount?: number;
+                    };
+                };
+            };
+            responses: {
+                /** @description Done */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["EconomyResult"];
+                    };
+                };
+                400: components["responses"]["Error"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/bonds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Current bond offerings */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["BondsResponse"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/name": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        displayName: string;
+                    };
+                };
+            };
+            responses: {
+                /** @description Renamed */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                400: components["responses"]["Error"];
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/leaderboards/millionaires": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Reviewed millionaires */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MillionairesResponse"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/leaderboards/season": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    /** @description YYYY-MM (default: current) */
+                    season?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Season standings */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SeasonResponse"];
+                    };
+                };
+                404: components["responses"]["Error"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/players/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    name: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Public profile */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["PlayerProfile"];
+                    };
+                };
+                404: components["responses"]["Error"];
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/portfolio": {
         parameters: {
             query?: never;
@@ -647,6 +888,8 @@ export interface components {
             lastAwardedAt: string;
         };
         MeResponse: {
+            /** @description Public name (emails are never shown to others) */
+            displayName: string;
             /** Format: int64 */
             accountId: number;
             email: string;
@@ -877,6 +1120,135 @@ export interface components {
             positions: components["schemas"]["Position"][];
             openOrders: components["schemas"]["Order"][];
             notices: components["schemas"]["Notice"][];
+            standing: components["schemas"]["Standing"];
+        };
+        Bond: {
+            /** Format: int64 */
+            offeringId: number;
+            name: string;
+            /** Format: int64 */
+            principal: number;
+            /** Format: int64 */
+            payout: number;
+            maturityDay: number;
+            /** Format: date-time */
+            maturesAt: string | null;
+        };
+        /** @description Economy standing. Everything except bonds survives resets. */
+        Standing: {
+            /**
+             * Format: int64
+             * @description Equity plus bonds at face value
+             */
+            netWorth: number;
+            /** Format: int64 */
+            startingCash: number;
+            cashLevel: number;
+            /** Format: int64 */
+            nextUpgradeCost: number | null;
+            /** @description Outstanding badges of shame */
+            shame: number;
+            shameEver: number;
+            eternalShame: boolean;
+            /** Format: int64 */
+            clearCost: number | null;
+            bankruptcies: number;
+            /** @description Net worth below $1k */
+            claimEligible: boolean;
+            /** Format: date-time */
+            nextClaimAt: string | null;
+            /** Format: date-time */
+            nextResetAt: string | null;
+            /**
+             * Format: int64
+             * @description Forced bankruptcy at or below this net worth
+             */
+            gameOverAt: number;
+            /** Format: int64 */
+            runStartCash: number;
+            bonds: components["schemas"]["Bond"][];
+        };
+        EconomyResult: {
+            ok: boolean;
+            standing: components["schemas"]["Standing"] | null;
+        };
+        BondOffering: {
+            /** Format: int64 */
+            id: number;
+            name: string;
+            returnPct: number;
+            /** Format: int64 */
+            capPerPlayer: number;
+            open: boolean;
+            /** Format: date-time */
+            closesAt: string | null;
+            /** Format: date-time */
+            maturesAt: string | null;
+        };
+        BondsResponse: {
+            offerings: components["schemas"]["BondOffering"][];
+        };
+        Millionaire: {
+            rank: number;
+            name: string;
+            /** Format: int64 */
+            netWorth: number;
+            shame: number;
+            eternalShame: boolean;
+            plan: string;
+        };
+        MillionairesResponse: {
+            entries: components["schemas"]["Millionaire"][];
+            /** @enum {string|null} */
+            yourStatus: "PENDING" | "APPROVED" | "REJECTED" | null;
+            pendingReviews: number;
+        };
+        SeasonEntry: {
+            rank: number | null;
+            name: string;
+            returnPct: number | null;
+            /** Format: int64 */
+            netWorth: number | null;
+            trades: number;
+            activeDays: number;
+            /** @description Why the entry isn't ranked */
+            unranked: string | null;
+        };
+        SeasonResponse: {
+            season: string;
+            /** Format: date-time */
+            startsAt: string;
+            /** Format: date-time */
+            endsAt: string;
+            finalized: boolean;
+            minTrades: number;
+            minActiveDays: number;
+            entries: components["schemas"]["SeasonEntry"][];
+            you: components["schemas"]["SeasonEntry"] | null;
+            seasons: string[];
+        };
+        PlayerProfile: {
+            name: string;
+            /** Format: date-time */
+            joined: string;
+            plan: string | null;
+            /** Format: int64 */
+            netWorth: number | null;
+            cashLevel: number;
+            shame: number;
+            eternalShame: boolean;
+            bankruptcies: number;
+            badges: {
+                badge: string;
+                title: string;
+                description: string;
+                count: number;
+            }[];
+            seasons: {
+                season: string;
+                rank: number | null;
+                returnPct: number | null;
+            }[];
         };
         NewsItem: {
             /** Format: int64 */

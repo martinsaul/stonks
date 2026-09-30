@@ -95,6 +95,19 @@ data class CalendarEvent(
     val detail: String,
 )
 
+/** A bond offering; dates are session opens. */
+@Serializable
+data class BondOfferingDto(
+    val id: Long,
+    val name: String,
+    /** Total return at maturity, percent. */
+    val returnPct: Double,
+    val capPerPlayer: Long,
+    val open: Boolean,
+    val closesAt: String?,
+    val maturesAt: String?,
+)
+
 @Serializable
 data class DelistingDto(val ticker: String, val name: String, val day: Int, val price: Long, val reason: String)
 
@@ -114,6 +127,7 @@ data class MarketState(
     /** Benchmark (central bank) rate, percent. */
     val benchmarkRate: Double = 0.0,
     val latestNewsId: Long = 0,
+    val bondOfferings: List<BondOfferingDto> = emptyList(),
 ) {
     val quotesByTicker: Map<String, Quote> = quotes.associateBy { it.ticker }
 }

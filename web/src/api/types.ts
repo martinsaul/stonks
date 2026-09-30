@@ -27,6 +27,15 @@ export type CalendarEvent = S["CalendarEvent"];
 export type CalendarResponse = S["CalendarResponse"];
 export type Delisting = S["Delisting"];
 export type Fundamentals = S["Fundamentals"];
+export type Standing = S["Standing"];
+export type Bond = S["Bond"];
+export type EconomyResult = S["EconomyResult"];
+export type BondOffering = S["BondOffering"];
+export type BondsResponse = S["BondsResponse"];
+export type MillionairesResponse = S["MillionairesResponse"];
+export type SeasonResponse = S["SeasonResponse"];
+export type SeasonEntry = S["SeasonEntry"];
+export type PlayerProfile = S["PlayerProfile"];
 
 /** A WebSocket `tick` frame (every 5 s). Between ticks, `{type: "account", account}` frames update only the player's own account. */
 export interface TickFrame {

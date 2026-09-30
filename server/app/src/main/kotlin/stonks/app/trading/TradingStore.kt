@@ -4,6 +4,7 @@ import stonks.app.db.Db
 import stonks.app.db.instant
 import stonks.app.db.list
 import stonks.app.db.query
+import stonks.app.db.update
 import stonks.engine.trading.FillEvent
 import stonks.engine.trading.OrderUpdate
 import java.sql.Timestamp
@@ -70,6 +71,26 @@ class TradingStore(private val db: Db) {
                     ps.addBatch()
                 }
                 ps.executeBatch()
+            }
+        }
+    }
+
+    /** Records economy events and awards achievement badges, once per event key. */
+    fun writeEconomy(events: List<stonks.engine.trading.AccountEvent>, at: Instant) {
+        if (events.isEmpty()) return
+        db.tx { c ->
+            for (e in events) {
+                val key = e.key ?: continue
+                c.update(
+                    "insert into economy_events (key, account_id, kind, amount, detail, at) values (?, ?, ?, ?, ?, ?) on conflict do nothing",
+                    key, e.accountId, e.kind.name, e.amount, e.detail, at,
+                )
+                if (e.kind == stonks.engine.trading.AccountEvent.Kind.ACHIEVEMENT && stonks.app.accounts.Badge.of(e.detail) != null) {
+                    c.update(
+                        "insert into account_badges (account_id, badge, event_key, awarded_at) values (?, ?, ?, ?) on conflict do nothing",
+                        e.accountId, e.detail, key, at,
+                    )
+                }
             }
         }
     }
