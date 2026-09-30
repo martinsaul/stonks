@@ -131,7 +131,7 @@ class ApiClient {
     return `${proto}//${location.host}${path}?${q}`;
   }
 
-  private async signed<T>(method: string, path: string, body?: unknown, retried = false): Promise<T> {
+  private async signed<T>(method: string, path: string, body?: unknown, retried = false, attempt = 0): Promise<T> {
     if (!this.key || !this.session) throw new ApiError(401, "auth_required", "Not signed in");
     const bytes = body === undefined ? new Uint8Array() : encoder.encode(JSON.stringify(body));
     const ts = Math.round(this.now());
@@ -155,6 +155,12 @@ class ApiClient {
       const serverTime = Number(res.headers.get("X-Stonks-Server-Time"));
       if (serverTime) this.setClockOffset(serverTime - Date.now());
       return this.signed<T>(method, path, body, true);
+    }
+    // Rate limited before processing (e.g. a burst of page-load requests): wait and retry.
+    if (res.status === 429 && attempt < 2) {
+      const wait = Math.min(3, Number(res.headers.get("Retry-After")) || 0.5 * 2 ** attempt);
+      await new Promise((r) => setTimeout(r, wait * 1000));
+      return this.signed<T>(method, path, body, retried, attempt + 1);
     }
     if (err.code === "session_invalid") await this.forget();
     throw err;

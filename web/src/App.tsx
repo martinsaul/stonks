@@ -1,4 +1,6 @@
 import { CalendarPage } from "./pages/Calendar";
+import { LeaderboardsPage } from "./pages/Leaderboards";
+import { PlayerPage } from "./pages/Player";
 import { useEffect, useState } from "react";
 import { BrowserRouter, Link, Route, Routes } from "react-router-dom";
 import { api } from "./api/client";
@@ -41,6 +43,8 @@ export function App() {
             <Route path="/quote/:ticker" element={<QuotePage />} />
             <Route path="/screener" element={<Screener />} />
             <Route path="/calendar" element={<CalendarPage />} />
+            <Route path="/leaderboards" element={<LeaderboardsPage />} />
+            <Route path="/player/:name" element={<PlayerPage />} />
             <Route path="/account" element={<Account />} />
             <Route path="*" element={<div className="empty">Page not found. <Link to="/">Back to markets</Link></div>} />
           </Routes>

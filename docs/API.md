@@ -119,7 +119,13 @@ close the connection.
 | `GET`  | `/quotes/{ticker}/candles` | `res` = `5s` \| `1m` \| `1d`; `from`/`to` (ISO or epoch ms); `limit` ≤ 2000 (default 500). Returns the newest candles in range, oldest first, plus the in-progress `live` candle. Adjusted for splits; delisted tickers keep their history. |
 | `GET`  | `/news` | Newest first. `ticker` (also returns market-wide and same-sector news), `before`/`after` (id paging), `limit` ≤ 100 (default 30). `tone` is positive/negative/neutral. Rumors may turn out false. |
 | `GET`  | `/calendar` | Next 60 game days: earnings (with consensus), ex-dividend and pay dates, splits, deal closes, IPOs, rate decisions; plus recent delistings. |
-| `GET`  | `/portfolio` | Cash, equity, buying power, margin, positions with P/L, open orders and recent notices. The first call opens the trading account with starting cash. |
+| `POST` | `/economy/{action}` | `claim`, `reset`, `bankrupt`, `upgrade`, `clear-badge`, `buy-bond` (`{"offeringId", "amount"}`). Logged and applied like orders; `400` with the reason when refused. Returns the new standing. |
+| `GET`  | `/bonds` | Current bond offerings. |
+| `POST` | `/me/name` | `{"displayName"}`: 3–20 letters, digits, `_` or `-`; unique. |
+| `GET`  | `/leaderboards/millionaires` | Reviewed players over $1M: fewest badges of shame first, then net worth. |
+| `GET`  | `/leaderboards/season?season=YYYY-MM` | Monthly (UTC) season by return %, plus your own entry and why it's unranked. |
+| `GET`  | `/players/{name}` | Public profile: plan, net worth, level, badges, past seasons. Never the email. |
+| `GET`  | `/portfolio` | Cash, equity, buying power, margin, positions with P/L, open orders, recent notices and `standing` (net worth incl. bonds, level, badges of shame, claim/reset availability, game-over line, bonds). The first call opens the trading account with starting cash. |
 | `POST` | `/orders` | Place an order (see below). Returns `202` with the order ids and when it's expected to execute. |
 | `DELETE` | `/orders/{id}` | Cancel an open order, or a whole group (OCO/OTO/bracket) by group id. |
 | `GET`  | `/orders?status=open\|all` | Open orders, or the last 200 orders. |
@@ -163,7 +169,7 @@ execution. The WebSocket `tick` frame carries your `account` (the same shape as
 | Per session | burst 40, refills 10/s |
 | Per account (all sessions) | burst 80, refills 20/s |
 | Per IP, before signature checks | burst 100, refills 50/s |
-| Concurrent in-flight requests per account | 4 |
+| Concurrent in-flight requests per account | 8 |
 | Sessions per account | 5 (the oldest is revoked) |
 | WebSockets per account | 3; client messages 5/s |
 | OTP requests | 10 per IP per hour; emails capped at 5 per address per 15 min (silently) |

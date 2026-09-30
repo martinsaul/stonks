@@ -563,8 +563,10 @@ Repository layout: `docs/`, `api/` (shared schema → Kotlin + TS types),
    pay date, shorts pay), central bank rate decisions, sector news, splits and
    reverse splits, distress → bankruptcy/bailout/take-private, buyouts, IPO
    replacements, news feed and calendar, copycats/inversecats.
-6. **Player economy** — claims, resets & cooldowns, bankruptcy, badges & alias
-   trap, starting-cash upgrades, bonds, leaderboards, achievements.
+6. **Player economy** ✅ — weekly claims, resets & cooldowns, voluntary and
+   forced bankruptcy, badges of shame & clearing, starting-cash upgrades, bonds,
+   display names & profiles, Millionaires (review queue) and monthly seasons,
+   achievements (Midas'/Sadim's Hands, milestones, season finishes).
 7. **Admin console** — game master tools, player review & rollback, economy
    dashboard.
 

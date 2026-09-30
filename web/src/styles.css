@@ -122,7 +122,8 @@ button, input, select { font: inherit; color: inherit; }
 .narrow-only { display: none; }
 @media (max-width: 760px) {
   .topbar-inner { flex-wrap: wrap; height: auto; padding: 8px 16px; gap: 8px 12px; }
-  .nav { order: 9; flex-basis: 100%; }
+  .nav { order: 9; flex-basis: 100%; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+  .nav a { white-space: nowrap; }
   .search { order: 10; flex-basis: 100%; max-width: none; }
   .wide-only { display: none; }
   .narrow-only { display: inline; }
@@ -178,7 +179,7 @@ table.data th button { border: 0; background: none; font: inherit; color: inheri
 .stats { display: grid; grid-template-columns: 1fr; }
 .stats div { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--grid); }
 .stats dt { color: var(--text-2); }
-.stats dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; }
+.stats dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; min-width: 0; overflow-wrap: anywhere; }
 .depth { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
 .depth th { font-size: 12px; color: var(--text-3); font-weight: 600; padding: 4px 6px; text-align: right; }
 .depth td { padding: 3px 6px; text-align: right; position: relative; }
@@ -254,3 +255,14 @@ table.data th button { border: 0; background: none; font: inherit; color: inheri
 .calendar-day:first-child h3 { margin-top: 0; }
 .calendar-day td { vertical-align: top; text-align: left; }
 .cal-kind { width: 120px; white-space: nowrap; }
+
+/* Account & economy */
+.inline-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; }
+.inline-form .field { margin: 0; flex: 1 1 200px; }
+.inline-form input { height: 40px; border: 1px solid var(--border); border-radius: 8px; padding: 0 12px; background: var(--surface); color: var(--text); min-width: 0; flex: 1 1 140px; }
+.btn-inline { width: auto; }
+.btn-outline { background: none; border: 1px solid var(--border); color: var(--text); }
+.form-ok { color: var(--up-text); font-size: 13px; margin-top: 8px; }
+.card.danger { border-color: var(--down); }
+.bond { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--grid); }
+.you-row td { background: var(--surface-2); font-weight: 600; }

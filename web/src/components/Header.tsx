@@ -77,6 +77,7 @@ export function Header({ email, onSignOut }: { email?: string; onSignOut: () => 
           <NavLink to="/" end>Markets</NavLink>
           <NavLink to="/screener">Screener</NavLink>
           <NavLink to="/calendar">Calendar</NavLink>
+          <NavLink to="/leaderboards">Leaders</NavLink>
           <NavLink to="/portfolio">Portfolio</NavLink>
         </nav>
         <Search />

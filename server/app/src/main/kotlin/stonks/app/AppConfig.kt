@@ -45,7 +45,7 @@ data class AppConfig(
         val ipBurst: Double = 100.0,
         val ipPerSecond: Double = 50.0,
         /** Concurrent in-flight requests per account. */
-        val inFlightPerAccount: Int = 4,
+        val inFlightPerAccount: Int = 8,
         val maxSessionsPerAccount: Int = 5,
         val maxSocketsPerAccount: Int = 3,
         /** Sign-in emails per address per 15 minutes (beyond this: silently not sent). */

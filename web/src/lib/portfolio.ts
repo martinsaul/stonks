@@ -4,6 +4,8 @@ import { useFeedFrame } from "../api/feed";
 import type { Portfolio } from "../api/types";
 
 let cached: Portfolio | undefined;
+/** One shared request for every component mounting before the first response. */
+let pending: Promise<Portfolio> | undefined;
 
 /**
  * The player's portfolio: fetched once over REST (which also opens the trading
@@ -14,7 +16,8 @@ export function usePortfolio(): Portfolio | undefined {
   const [initial, setInitial] = useState<Portfolio | undefined>(cached);
   useEffect(() => {
     if (cached) return;
-    api.get<Portfolio>("/api/v1/portfolio").then((p) => {
+    pending ??= api.get<Portfolio>("/api/v1/portfolio").finally(() => { pending = undefined; });
+    pending.then((p) => {
       cached = p;
       setInitial(p);
     }, () => undefined);
