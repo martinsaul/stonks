@@ -20,6 +20,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
 import stonks.app.auth.RequestSignature
 import stonks.app.db.Db
+import stonks.app.db.update
 import java.time.Instant
 import kotlin.test.AfterTest
 import kotlin.test.Test
@@ -174,5 +175,40 @@ class TradingApiTest {
             after.positions.map { it.ticker to it.quantity },
         )
         assertEquals(1, after.openOrders.size)
+    }
+
+    @Test
+    fun `absurd prices are refused by the API`() = testApplication {
+        application { stonksModule(app) }
+        val c = createClient { }
+        val s = c.login("overflow@gmail.com")
+        c.portfolio(s)
+        val r = c.signed(s, "POST", "/api/v1/orders", """{"ticker":"FOOF","legs":[{"side":"SELL","quantity":3,"type":"LIMIT","limitPrice":4000000000000000000,"timeInForce":"GTC"}]}""")
+        assertEquals(HttpStatusCode.BadRequest, r.status)
+        assertEquals("order_invalid", json(r.bodyAsText())["error"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `a poisoned input already in the log can't stop the server from starting`() = testApplication {
+        application { stonksModule(app) }
+        val c = createClient { }
+        val s = c.login("poison@gmail.com")
+        c.portfolio(s)
+        app.close()
+        // Simulate an input logged before prices were capped (the old crash-loop).
+        val db2 = TestDb.reconnect(db)
+        db2.tx { conn ->
+            conn.update(
+                "insert into engine_inputs (apply_day, apply_tick, kind, account_id, payload) select apply_day, apply_tick, 'place', ?, ?::jsonb from engine_inputs order by seq desc limit 1",
+                s.accountId,
+                """{"request":{"ticker":"FOOF","structure":"SINGLE","legs":[{"side":"SELL","quantity":3,"type":"LIMIT","limitPrice":4000000000000000000,"timeInForce":"GTC"}]},"executeDay":0,"executeTick":0}""",
+            )
+        }
+        app = App(config, db2, clock).also { it.start(liveLoop = false) }
+        clock.advance(60)
+        app.market.pump(clock.instant())
+        val p = app.market.state.portfolios.getValue(s.accountId)
+        assertEquals(5_000_00, p.cash)
+        assertTrue(p.openOrders.isEmpty())
     }
 }

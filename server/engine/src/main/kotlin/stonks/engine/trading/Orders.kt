@@ -52,6 +52,14 @@ data class LegSpec(
 )
 
 data class OrderRequest(val ticker: String, val structure: Structure, val legs: List<LegSpec>) {
+    companion object {
+        /**
+         * Hard input bounds. Keeping every price and quantity within these guarantees
+         * `quantity × price` (at most 10^17 cents) can't overflow a Long.
+         */
+        const val MAX_PRICE: Long = 100_000_000 // $1,000,000.00 per share, in cents
+        const val MAX_QUANTITY: Long = 1_000_000_000
+    }
 
     /** Returns a reason the request is invalid, or null. */
     fun validate(): String? {
@@ -79,8 +87,12 @@ data class OrderRequest(val ticker: String, val structure: Structure, val legs: 
     }
 
     private fun validateLeg(l: LegSpec): String? {
-        fun positive(v: Long?, name: String) = if (v == null || v <= 0) "$name must be a positive price." else null
-        if (l.quantity <= 0 || l.quantity > 1_000_000_000) return "Quantity must be between 1 and 1,000,000,000 shares."
+        fun positive(v: Long?, name: String) = when {
+            v == null || v <= 0 -> "$name must be a positive price."
+            v > MAX_PRICE -> "$name can't exceed ${'$'}1,000,000 per share."
+            else -> null
+        }
+        if (l.quantity <= 0 || l.quantity > MAX_QUANTITY) return "Quantity must be between 1 and 1,000,000,000 shares."
         return when (l.kind) {
             OrderKind.MARKET -> if (l.tif == TimeInForce.GTC) "Market orders can't be good-till-cancelled." else null
             OrderKind.LIMIT -> positive(l.limit, "Limit")
@@ -88,9 +100,10 @@ data class OrderRequest(val ticker: String, val structure: Structure, val legs: 
             OrderKind.STOP_LIMIT -> positive(l.stop, "Stop") ?: positive(l.limit, "Limit")
             OrderKind.TRAILING_STOP, OrderKind.TRAILING_STOP_LIMIT -> when {
                 (l.trailAmount == null) == (l.trailPercent == null) -> "Give either a trailing amount or a trailing percentage."
-                l.trailAmount != null && l.trailAmount <= 0 -> "Trailing amount must be positive."
+                l.trailAmount != null && (l.trailAmount <= 0 || l.trailAmount > MAX_PRICE) -> "Trailing amount must be positive and at most ${'$'}1,000,000."
                 l.trailPercent != null && (l.trailPercent <= 0.0 || l.trailPercent > 50.0) -> "Trailing percentage must be between 0 and 50."
-                l.kind == OrderKind.TRAILING_STOP_LIMIT && (l.limitOffset == null || l.limitOffset < 0) -> "Give a limit offset for a trailing stop-limit."
+                l.kind == OrderKind.TRAILING_STOP_LIMIT && (l.limitOffset == null || l.limitOffset < 0 || l.limitOffset > MAX_PRICE) ->
+                    "Give a limit offset (up to ${'$'}1,000,000) for a trailing stop-limit."
                 else -> null
             }
             OrderKind.TWAP, OrderKind.VWAP -> when {

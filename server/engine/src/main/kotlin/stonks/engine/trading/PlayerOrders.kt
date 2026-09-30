@@ -74,8 +74,9 @@ class PlayerOrders(private val ticker: String, private val book: OrderBook) {
         for (leg in dueQueued(day, -1)) {
             if (leg.spec.kind != OrderKind.MARKET && leg.spec.kind != OrderKind.LIMIT) continue
             val px = leg.executableLimit ?: prices(leg.spec.side) ?: continue
-            if (!approve(leg, leg.remaining, px, reserve = false)) continue
-            out += bookOrder(leg, leg.remaining)
+            guarded(leg) {
+                if (approve(leg, leg.remaining, px, reserve = false)) out += bookOrder(leg, leg.remaining)
+            }
         }
         return out
     }
@@ -106,22 +107,42 @@ class PlayerOrders(private val ticker: String, private val book: OrderBook) {
         val due = dueQueued(day, tick).sortedWith(compareBy({ !it.liquidation }, { it.executeDay }, { it.executeTick }, { it.id }))
         for (leg in due) {
             if (leg.status != LegStatus.QUEUED) continue
-            when {
-                leg.spec.kind.isStop && !leg.triggered -> {
-                    leg.status = LegStatus.ARMED
-                    update(leg)
+            guarded(leg) {
+                when {
+                    leg.spec.kind.isStop && !leg.triggered -> {
+                        leg.status = LegStatus.ARMED
+                        update(leg)
+                    }
+                    leg.spec.kind.isAlgo -> {
+                        leg.status = LegStatus.WORKING
+                        update(leg)
+                    }
+                    else -> submit(leg, leg.remaining, fills)
                 }
-                leg.spec.kind.isAlgo -> {
-                    leg.status = LegStatus.WORKING
-                    update(leg)
-                }
-                else -> submit(leg, leg.remaining, fills)
             }
         }
         for (leg in legs.values.filter { it.status == LegStatus.WORKING && it.spec.kind.isAlgo }) {
-            val slice = algoSlice(leg)
-            leg.algoTicksDone++
-            if (slice > 0) submit(leg, slice, fills, algo = true)
+            guarded(leg) {
+                val slice = algoSlice(leg)
+                leg.algoTicksDone++
+                if (slice > 0) submit(leg, slice, fills, algo = true)
+            }
+        }
+    }
+
+    /**
+     * Safety net: a failure while processing one order (e.g. arithmetic overflow)
+     * rejects that order and nothing else. The simulation must never throw because of
+     * player input: the input is already in the replay log, so an exception here would
+     * repeat on every restart.
+     */
+    private inline fun guarded(leg: Leg, block: () -> Unit) {
+        try {
+            block()
+        } catch (e: ArithmeticException) {
+            runCatching { finish(leg, LegStatus.REJECTED, "Order exceeds the market's numeric limits.") }
+        } catch (e: RuntimeException) {
+            runCatching { finish(leg, LegStatus.REJECTED, "Order could not be processed.") }
         }
     }
 
@@ -252,13 +273,13 @@ class PlayerOrders(private val ticker: String, private val book: OrderBook) {
         var worst = levels.first().price
         for (l in levels) {
             val q = minOf(left, l.quantity)
-            cost += q * l.price
+            cost = Math.addExact(cost, Math.multiplyExact(q, l.price))
             left -= q
             worst = l.price
             if (left == 0L) break
         }
         // Unfillable remainder is priced at the worst visible level.
-        cost += left * worst
+        cost = Math.addExact(cost, Math.multiplyExact(left, worst))
         return (cost.toDouble() / qty).roundToLong().coerceAtLeast(1)
     }
 
@@ -273,9 +294,13 @@ class PlayerOrders(private val ticker: String, private val book: OrderBook) {
 
     private fun fill(id: Long, qty: Long, price: Cents, maker: Boolean) {
         val leg = legs[id] ?: return
+        guarded(leg) { settleFill(leg, qty, price, maker) }
+    }
+
+    private fun settleFill(leg: Leg, qty: Long, price: Cents, maker: Boolean) {
         val (commission, realized) = gateway.settle(leg, qty, price)
         leg.filled += qty
-        leg.notional += qty * price
+        leg.notional = Math.addExact(leg.notional, Math.multiplyExact(qty, price))
         events += FillEvent("$ticker-${++fillSeq}", leg.id, leg.accountId, ticker, leg.spec.side, qty, price, commission, realized, maker, leg.liquidation, day, tick)
 
         // OCO: the first fill cancels the siblings.

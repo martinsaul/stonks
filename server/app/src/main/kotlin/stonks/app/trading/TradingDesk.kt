@@ -153,9 +153,22 @@ class TradingDesk(
     fun setEstimator(f: (day: Int, tick: Int) -> Instant?) { estimator = f }
     private fun estimateFor(p: PlacePayload): String? = estimator(p.executeDay, p.executeTick)?.toString()
 
-    /** Applies one input to the engine; returns a rejection reason or null. */
+    /**
+     * Applies one input to the engine; returns a rejection reason or null. Never
+     * throws: a logged input that can't be applied is rejected (and stays rejected on
+     * every replay) instead of taking the server down.
+     */
     private fun apply(market: Market, seq: Long, kind: String, accountId: Long, payload: String): String? {
         market.lastInputSeq = seq
+        return try {
+            applyUnchecked(market, seq, kind, accountId, payload)
+        } catch (e: Exception) {
+            log.error("Input {} ({}) for account {} could not be applied; rejecting it", seq, kind, accountId, e)
+            "Request could not be processed."
+        }
+    }
+
+    private fun applyUnchecked(market: Market, seq: Long, kind: String, accountId: Long, payload: String): String? {
         return when (kind) {
             "open" -> { market.openAccount(accountId, json.decodeFromString(OpenPayload.serializer(), payload).cash); null }
             "place" -> {

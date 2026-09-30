@@ -34,7 +34,7 @@ enum class Plan(
      * @param orderNotionalBefore notional (cents) already filled on this order
      */
     fun commission(qty: Long, price: Cents, firstFill: Boolean, orderNotionalBefore: Long): Cents {
-        val notional = qty * price
+        val notional = Math.multiplyExact(qty, price)
         if (this == ROOKIE) return if (firstFill) minimum else 0
         var c = ceil(qty * perShare / 100.0).toLong()
         if (firstFill) c = maxOf(c, minimum)
@@ -42,7 +42,7 @@ enum class Plan(
         if (this == WHALE) {
             // Exchange fee on large orders: 0.1% of the order's notional above $250k.
             val before = maxOf(0, orderNotionalBefore - LARGE_ORDER)
-            val after = maxOf(0, orderNotionalBefore + notional - LARGE_ORDER)
+            val after = maxOf(0, Math.addExact(orderNotionalBefore, notional) - LARGE_ORDER)
             c += (after - before) / 1000
         }
         return c

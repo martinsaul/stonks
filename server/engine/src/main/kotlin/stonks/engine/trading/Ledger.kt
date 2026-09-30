@@ -70,13 +70,13 @@ class Ledger {
         var maintenance = 0.0
         for ((ticker, p) in a.positions) {
             if (p.quantity == 0L) continue
-            val value = abs(p.quantity) * (prices[ticker] ?: 0)
+            val value = Math.multiplyExact(abs(p.quantity), prices[ticker] ?: 0)
             if (p.quantity > 0) {
-                longValue += value
+                longValue = Math.addExact(longValue, value)
                 initial += value * a.plan.initialMargin
                 maintenance += value * a.plan.maintenanceMargin
             } else {
-                shortValue += value
+                shortValue = Math.addExact(shortValue, value)
                 initial += value * Plan.SHORT_INITIAL
                 maintenance += value * Plan.SHORT_MAINTENANCE
             }
@@ -85,7 +85,7 @@ class Ledger {
             cash = a.cash,
             longValue = longValue,
             shortValue = shortValue,
-            equity = a.cash + longValue - shortValue,
+            equity = Math.subtractExact(Math.addExact(a.cash, longValue), shortValue),
             initialRequirement = ceil(initial).toLong(),
             maintenanceRequirement = ceil(maintenance).toLong(),
             reserved = a.reservations.values.sum(),
@@ -105,14 +105,14 @@ class Ledger {
         }
         val opening = maxOf(0, qty - closable)
         val fraction = if (side == Side.BUY) a.plan.initialMargin else Plan.SHORT_INITIAL
-        return ceil(opening * price * fraction).toLong()
+        return ceil(Math.multiplyExact(opening, price) * fraction).toLong()
     }
 
     /** Checks that [requirement] plus [fees] fit in the account's buying power. */
     fun authorize(a: Account, prices: Map<String, Cents>, requirement: Cents, fees: Cents, excludeReservation: Long? = null): Authorization {
         val f = figures(a, prices)
         val available = f.equity - f.initialRequirement - (f.reserved - (excludeReservation?.let { a.reservations[it] } ?: 0))
-        return if (requirement + fees <= available) Authorization.Approved(requirement)
+        return if (requirement >= 0 && fees >= 0 && Math.addExact(requirement, fees) <= available) Authorization.Approved(requirement)
         else Authorization.Denied("Insufficient buying power (need ${money(requirement + fees)}, have ${money(maxOf(0, available))}).")
     }
 
@@ -124,37 +124,40 @@ class Ledger {
      * quantity.
      */
     fun applyFill(a: Account, ticker: String, side: Side, qty: Long, price: Cents, commission: Cents): Cents {
+        require(qty > 0 && price > 0 && commission >= 0) { "invalid fill $qty @ $price" }
+        // Overflow check up front, before any state changes.
+        Math.addExact(Math.addExact(abs(a.cash), Math.multiplyExact(qty, price)), commission)
         val p = a.position(ticker)
         val shortBefore = maxOf(0, -p.quantity)
         var realized = 0L
         var remaining = qty
         if (side == Side.BUY) {
-            a.cash -= Math.multiplyExact(qty, price)
+            a.cash = Math.subtractExact(a.cash, Math.multiplyExact(qty, price))
             if (p.quantity < 0) { // cover
                 val c = minOf(remaining, -p.quantity)
                 val basis = proportional(p.costBasis, c, -p.quantity)
-                realized += basis - c * price
+                realized += basis - Math.multiplyExact(c, price)
                 p.costBasis -= basis
                 p.quantity += c
                 remaining -= c
             }
             if (remaining > 0) {
-                p.costBasis += remaining * price
-                p.quantity += remaining
+                p.costBasis = Math.addExact(p.costBasis, Math.multiplyExact(remaining, price))
+                p.quantity = Math.addExact(p.quantity, remaining)
             }
         } else {
-            a.cash += Math.multiplyExact(qty, price)
+            a.cash = Math.addExact(a.cash, Math.multiplyExact(qty, price))
             if (p.quantity > 0) { // sell long
                 val c = minOf(remaining, p.quantity)
                 val basis = proportional(p.costBasis, c, p.quantity)
-                realized += c * price - basis
+                realized += Math.multiplyExact(c, price) - basis
                 p.costBasis -= basis
                 p.quantity -= c
                 remaining -= c
             }
             if (remaining > 0) { // open or extend a short
-                p.costBasis += remaining * price
-                p.quantity -= remaining
+                p.costBasis = Math.addExact(p.costBasis, Math.multiplyExact(remaining, price))
+                p.quantity = Math.subtractExact(p.quantity, remaining)
             }
         }
         if (p.quantity == 0L) {

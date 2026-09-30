@@ -447,3 +447,43 @@ class MoreOrderTypesTest {
         assertTrue(h.market.placeOrder(52, 2, OrderRequest("AAA", Structure.SINGLE, listOf(LegSpec(Side.BUY, 5, OrderKind.MARKET))), 0, 0)!!.contains("account"))
     }
 }
+
+class OverflowSafetyTest {
+    @Test
+    fun `validation caps prices and quantities`() {
+        fun check(l: LegSpec) = OrderRequest("AAA", Structure.SINGLE, listOf(l)).validate()
+        assertNotNull(check(LegSpec(Side.SELL, 10, OrderKind.LIMIT, limit = Long.MAX_VALUE / 2)))
+        assertNotNull(check(LegSpec(Side.SELL, 10, OrderKind.LIMIT, limit = OrderRequest.MAX_PRICE + 1)))
+        assertNull(check(LegSpec(Side.SELL, 10, OrderKind.LIMIT, limit = OrderRequest.MAX_PRICE)))
+        assertNotNull(check(LegSpec(Side.SELL, 10, OrderKind.STOP, stop = Long.MAX_VALUE)))
+        assertNotNull(check(LegSpec(Side.SELL, 10, OrderKind.TRAILING_STOP, trailAmount = Long.MAX_VALUE)))
+        assertNotNull(check(LegSpec(Side.SELL, OrderRequest.MAX_QUANTITY + 1, OrderKind.MARKET)))
+    }
+
+    @Test
+    fun `overflowing requirements throw instead of wrapping to negative`() {
+        val l = Ledger()
+        val a = l.open(1, 5_000_00)
+        kotlin.test.assertFailsWith<ArithmeticException> { l.requirement(a, "X", Side.SELL, 10, Long.MAX_VALUE / 4, 0) }
+    }
+
+    @Test
+    fun `an absurd order that slips past validation is rejected and the market keeps running`() {
+        val h = Harness()
+        h.account(1)
+        // Inject directly (bypassing validation) the order that used to crash the server:
+        // a short sale at a price whose buying-power math overflowed.
+        val leg = Leg(
+            4, 1, 1, "AAA", LegSpec(Side.SELL, 10, OrderKind.LIMIT, limit = 4_000_000_000_000_000_000L, tif = TimeInForce.GTC),
+            Structure.SINGLE, null, null, h.market.day,
+        )
+        leg.executeDay = h.market.day
+        leg.executeTick = h.market.tick
+        h.market.tickers.getValue("AAA").playerOrders.add(leg)
+        h.step(200) // background flow keeps trading; nothing may throw
+        assertEquals(LegStatus.REJECTED, h.status(4))
+        assertNull(h.market.tickers.getValue("AAA").book.restingOrder(4))
+        assertTrue(h.acct(1).positions.isEmpty())
+        assertTrue(h.market.tickers.getValue("AAA").candles.days.current!!.volume > 0)
+    }
+}

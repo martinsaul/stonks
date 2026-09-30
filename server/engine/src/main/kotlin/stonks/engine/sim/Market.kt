@@ -245,17 +245,28 @@ class Market private constructor(
         if (ledger.accounts.isEmpty()) return
         for (a in ledger.accounts.values) {
             if (a.positions.isEmpty()) continue
+            // An account whose figures can't be computed is skipped rather than
+            // allowed to halt the market.
+            try {
+                checkMargin(a)
+            } catch (_: ArithmeticException) {
+            }
+        }
+    }
+
+    private fun checkMargin(a: stonks.engine.trading.Account) {
+        run {
             val f = ledger.figures(a, prices)
-            if (f.equity >= f.maintenanceRequirement) continue
-            if (tickers.values.any { it.playerOrders.hasPendingLiquidation(a.id) }) continue
+            if (f.equity >= f.maintenanceRequirement) return
+            if (tickers.values.any { it.playerOrders.hasPendingLiquidation(a.id) }) return
 
             tickers.values.forEach { it.playerOrders.cancelAll(a.id, "Cancelled: margin call") }
             val (ticker, pos) = a.positions.entries.maxBy { (t, p) ->
-                val value = abs(p.quantity) * (prices[t] ?: 0)
+                val value = Math.multiplyExact(abs(p.quantity), prices[t] ?: 0)
                 val loss = if (p.quantity > 0) p.costBasis - value else value - p.costBasis
                 loss.toDouble() + value / 1e6 // largest loss first, then largest position
             }.toPair()
-            val price = prices[ticker] ?: continue
+            val price = prices[ticker] ?: return
             val m = if (pos.quantity > 0) a.plan.maintenanceMargin else Plan.SHORT_MAINTENANCE
             val shortfall = f.maintenanceRequirement - f.equity
             val qty = if (f.equity <= 0) abs(pos.quantity)
