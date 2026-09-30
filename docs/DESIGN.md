@@ -151,6 +151,16 @@ A strategy defines a company's drift, volatility and EPS growth profile.
   **market regimes** (bull, bear, crash, bubble) scale drift/vol across many
   stocks at once.
 
+## Central bank
+
+- The **benchmark rate** (default 4%, range **0–10%**) drives margin interest
+  (benchmark + plan spread).
+- **Rate decisions** are scheduled roughly every 4 real weeks and published as
+  market-wide news: cut 0.5, cut 0.25, hold, hike 0.25 or hike 0.5 points.
+- Odds depend on the market regime: cuts are likelier in bear markets and
+  crashes, hikes in bubbles.
+- Admins can force a decision.
+
 ## Events
 
 Two kinds, often combined: **punctual** (one-off jump/gap) and
