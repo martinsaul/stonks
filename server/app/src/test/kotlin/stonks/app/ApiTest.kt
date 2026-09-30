@@ -262,6 +262,38 @@ class ApiTest {
     }
 
     @Test
+    fun `news, calendar and fundamentals`() = testApplication {
+        val c = client()
+        val s = c.login("analyst@gmail.com")
+
+        val all = json(c.signedGet(s, "/api/v1/news?limit=100").bodyAsText())["news"]!!.jsonArray.map { it.jsonObject }
+        assertTrue(all.isNotEmpty(), "3 sessions of 50 companies make some news")
+        val ids = all.map { it["id"]!!.jsonPrimitive.long }
+        assertEquals(ids.sortedDescending(), ids, "newest first")
+        val market = json(c.signedGet(s, "/api/v1/market").bodyAsText())
+        assertEquals(ids.first(), market["latestNewsId"]!!.jsonPrimitive.long)
+
+        val ticker = all.firstNotNullOf { it["ticker"]?.takeIf { t -> t !is kotlinx.serialization.json.JsonNull }?.jsonPrimitive?.content }
+        val filtered = json(c.signedGet(s, "/api/v1/news?ticker=$ticker").bodyAsText())["news"]!!.jsonArray.map { it.jsonObject }
+        assertTrue(filtered.isNotEmpty())
+        filtered.forEach { n -> val t = n["ticker"]; assertTrue(t is kotlinx.serialization.json.JsonNull || t!!.jsonPrimitive.content == ticker) }
+        val older = json(c.signedGet(s, "/api/v1/news?before=${ids.first()}&limit=1").bodyAsText())["news"]!!.jsonArray
+        if (ids.size > 1) assertEquals(ids[1], older.single().jsonObject["id"]!!.jsonPrimitive.long)
+
+        val cal = json(c.signedGet(s, "/api/v1/calendar").bodyAsText())
+        val events = cal["events"]!!.jsonArray.map { it.jsonObject }
+        assertTrue(events.any { it["kind"]!!.jsonPrimitive.content == "RATE_DECISION" })
+        assertTrue(events.count { it["kind"]!!.jsonPrimitive.content == "EARNINGS" } >= 40, "most companies report within 60 days")
+        assertEquals(4.0, cal["benchmarkRate"]!!.jsonPrimitive.content.toDouble())
+
+        val quote = json(c.signedGet(s, "/api/v1/quotes/FOOF").bodyAsText())
+        val f = quote["fundamentals"]!!.jsonObject
+        assertTrue(f["epsTtm"]!!.jsonPrimitive.long > 0)
+        assertEquals("ACTIVE", f["status"]!!.jsonPrimitive.content)
+        assertNotNull(f["nextEarnings"]!!.jsonPrimitive.content)
+    }
+
+    @Test
     fun `websocket requires a signed handshake and streams ticks`() = testApplication {
         val c = client()
         val s = c.login("streamer@gmail.com")

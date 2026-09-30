@@ -100,20 +100,6 @@ class CandleStore(private val db: Db) {
         ) { rs -> rs.list { Candle(it.instant("time")!!, it.getLong(2), it.getLong(3), it.getLong(4), it.getLong(5), it.getLong(6)) } }
     }
 
-    data class DailyStats(val high52: Long?, val low52: Long?, val avgVolume30: Long?)
-
-    /** 52-week (252 game days) range and 30-day average volume. */
-    fun dailyStats(ticker: String): DailyStats = db.read { c ->
-        c.query(
-            """with d as (select high, low, volume, row_number() over (order by time desc) as n from candles_1d where ticker = ?)
-               select max(high) filter (where n <= 252), min(low) filter (where n <= 252), avg(volume) filter (where n <= 30) from d""",
-            ticker,
-        ) { rs ->
-            rs.next()
-            DailyStats(rs.getObject(1) as Long?, rs.getObject(2) as Long?, (rs.getObject(3) as java.math.BigDecimal?)?.toLong())
-        }
-    }
-
     /** Deletes expired intraday candles when TimescaleDB retention is unavailable. */
     fun sweepExpired(now: Instant) {
         if (db.hasTimescale) return

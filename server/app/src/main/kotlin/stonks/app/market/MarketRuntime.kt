@@ -39,6 +39,7 @@ class MarketRuntime(
     private val worlds: WorldStore,
     private val candles: CandleStore,
     private val trading: TradingStore,
+    private val news: NewsStore,
     private val clock: Clock,
     private val schedule: MarketSchedule = MarketSchedule(),
     private val seedOverride: Long? = null,
@@ -58,6 +59,11 @@ class MarketRuntime(
     private val accountListeners = CopyOnWriteArrayList<(Set<Long>) -> Unit>()
     private val portfolios = java.util.concurrent.ConcurrentHashMap<Long, stonks.app.trading.PortfolioDto>()
     @Volatile private var running = false
+    /** The open session, or the last one to open (for stamping news times). */
+    private var lastSession: Session? = null
+    @Volatile var latestNewsId = 0L
+        private set
+    private var calendarCache: Pair<Int, List<Session>>? = null
     private var thread: Thread? = null
 
     lateinit var market: Market
@@ -88,6 +94,7 @@ class MarketRuntime(
             createWorld(world?.seed ?: seedOverride ?: SecureRandom().nextLong(), world?.liveAt)
         }
         market.setCandleSink(writer)
+        latestNewsId = news.latestId()
         desk.setEstimator(::estimate)
         replay()
         catchUp(clock.instant())
@@ -104,7 +111,9 @@ class MarketRuntime(
         market = Market(CompanyCatalog.generate(Rng(Rng.derive(seed, -1))), config, seed)
         market.setCandleSink(writer)
         val started = System.nanoTime()
-        Backfill.run(market, schedule, liveAt, backfillSessions) { i, _ ->
+        Backfill.run(market, schedule, liveAt, backfillSessions) { i, s ->
+            lastSession = s
+            drainWorld(sync = true)
             if (writer.pending > 1_000_000) writer.flush(bulk = true)
             if ((i + 1) % 100 == 0) log.info("  {}/{} sessions", i + 1, backfillSessions)
         }
@@ -134,7 +143,7 @@ class MarketRuntime(
             if (s == null) {
                 if (market.day == day && tick == TradingDesk.CLOSED) return
                 check(market.day <= day) { "input log is ahead of the market" }
-                market.beginSession(nextSession())
+                begin(nextSession())
             } else if (market.day == day && tick >= 0) {
                 market.fastForward(tick)
                 return
@@ -178,12 +187,13 @@ class MarketRuntime(
             val next = nextSession()
             when {
                 !next.close.isAfter(now) -> {
-                    market.runSession(next, pool)
-                    saveSnapshot()
+                    begin(next)
+                    market.fastForward(next.ticks, pool)
+                    finishSession()
                     caughtUp++
                 }
                 !next.open.isAfter(now) -> {
-                    market.beginSession(next)
+                    begin(next)
                     market.fastForward(ticksDue(next, now), pool)
                 }
                 else -> break
@@ -214,6 +224,7 @@ class MarketRuntime(
             }
         }
         touched += desk.absorb(market.drainEvents(), now)
+        drainWorld()
         if (marketChanged) {
             publish(now) // prices moved: every portfolio is rebuilt and every client gets a tick
         } else if (touched.isNotEmpty()) {
@@ -259,9 +270,44 @@ class MarketRuntime(
         pool.shutdown()
     }
 
+    private fun begin(s: Session) {
+        market.beginSession(s)
+        lastSession = s
+    }
+
     private fun finishSession() {
         market.endSession()
+        drainWorld()
         saveSnapshot()
+    }
+
+    /**
+     * Moves the engine's news and corporate actions to the database, stamped with
+     * wall-clock times from the session they happened in.
+     */
+    private fun drainWorld(sync: Boolean = false) {
+        val items = market.drainNews()
+        val actions = market.drainActions()
+        if (items.isEmpty() && actions.isEmpty()) return
+        val s = market.session ?: lastSession
+        fun at(tick: Int): Instant = when {
+            s == null -> clock.instant()
+            tick < 0 -> s.open
+            tick >= s.ticks -> s.close
+            else -> s.tickTime(tick + 1)
+        }
+        val stamped = items.map { StampedNews(it, at(it.tick)) }
+        val rows = actions.map { ActionRow(it.ticker, it.day, it.kind.name, it.ratio, at(-1)) }
+        items.lastOrNull()?.let { latestNewsId = maxOf(latestNewsId, it.id) }
+        val write = {
+            try { news.insert(stamped, rows) } catch (e: Exception) { log.error("Failed to save {} news items", stamped.size, e) }
+        }
+        if (sync) write() else flusher.execute(write)
+    }
+
+    companion object {
+        /** How far ahead the calendar looks (game days). */
+        const val CALENDAR_DAYS = 60
     }
 
     private fun nextSession(): Session = schedule.nextSessionAfter(market.lastSessionClose ?: clock.instant())
@@ -295,9 +341,8 @@ class MarketRuntime(
             t.candles.minutes.current?.let { t.company.ticker to CandleDto(it.time.toString(), it.open, it.high, it.low, it.close, it.volume) }
         }.toMap()
 
-        val value = 1000.0 * tickers.map { it.last.toDouble() / it.company.initialPrice }.average()
-        val prev = tickers.mapNotNull { t -> t.previousClose?.let { it.toDouble() / t.company.initialPrice } }
-            .takeIf { it.size == tickers.size }?.let { 1000.0 * it.average() }
+        val value = market.indexValue
+        val prev = market.indexClose.takeIf { market.sessionsCompleted > 0 }
         val index = IndexQuote("STONKS 50", value, prev, prev?.let { value - it }, prev?.let { (value - it) / it * 100 })
 
         val all = desk.portfolios(market)
@@ -306,11 +351,75 @@ class MarketRuntime(
             lastPortfolioPersist = now
             desk.persistPortfolios(all.values)
         }
-        val state = MarketState(now, session, market.regime.name, index, quotes, depth, liveMinute)
+        val dates = sessionDates()
+        val date = { day: Int -> dates.getOrNull(day - market.day)?.open?.toString() }
+        val fundamentals = tickers.associate { it.company.ticker to fundamentals(it, date) }
+        val state = MarketState(
+            now, session, market.regime.name, index, quotes, depth, liveMinute,
+            fundamentals, calendar(date),
+            market.delistings.takeLast(50).map { DelistingDto(it.ticker, it.name, it.day, it.price, it.reason) },
+            market.benchmarkRate * 100, latestNewsId,
+        )
         published.set(state)
         for (l in listeners) {
             try { l(state) } catch (e: Exception) { log.warn("listener failed", e) }
         }
+    }
+
+    /** The current (or next) session and those after it: index k is game day market.day + k. */
+    private fun sessionDates(): List<Session> {
+        calendarCache?.let { (day, list) -> if (day == market.day) return list }
+        val list = ArrayList<Session>(CALENDAR_DAYS)
+        list += market.session ?: nextSession()
+        while (list.size < CALENDAR_DAYS) list += schedule.nextSessionAfter(list.last().close)
+        calendarCache = market.day to list
+        return list
+    }
+
+    private fun fundamentals(t: TickerSim, date: (Int) -> String?): Fundamentals {
+        val c = t.corp
+        val eps = c.epsTtm
+        val short = market.ledger.shortInterest[t.company.ticker] ?: 0
+        return Fundamentals(
+            shares = c.shares,
+            epsTtm = eps,
+            pe = eps?.takeIf { it > 0 }?.let { t.last.toDouble() / it },
+            dividend = c.dividend,
+            dividendYield = if (c.dividend > 0) c.dividend * 4 * 100.0 / t.last else null,
+            exDividendDate = c.exDay.takeIf { it >= market.day }?.let(date),
+            dividendPayDate = c.payDay.takeIf { it >= market.day }?.let(date),
+            nextEarnings = date(c.nextEarningsDay),
+            consensusEps = c.consensus,
+            status = c.status.name,
+            dealOffer = c.deal?.offer,
+            splitDate = c.splitDay.takeIf { it >= 0 }?.let(date),
+            splitRatio = c.splitRatio.takeIf { c.splitDay >= 0 },
+            shortInterest = short,
+            shortInterestPct = short * 100.0 / c.shares.coerceAtLeast(1),
+            borrowFee = market.borrowRate(t.company.ticker) * 100,
+        )
+    }
+
+    private fun calendar(date: (Int) -> String?): List<CalendarEvent> {
+        val out = ArrayList<CalendarEvent>()
+        fun add(day: Int, kind: String, t: TickerSim?, detail: String, ticker: String? = t?.company?.ticker, name: String? = t?.company?.name) {
+            if (day < market.day) return
+            val d = date(day) ?: return
+            out += CalendarEvent(d, day, kind, ticker, name, detail)
+        }
+        val money = { c: Long -> "$" + "%,.2f".format(c / 100.0) }
+        for (t in market.tickers.values) {
+            val c = t.corp
+            add(c.nextEarningsDay, "EARNINGS", t, "EPS estimate ${money(c.consensus)}")
+            if (c.exDay >= 0) add(c.exDay, "EX_DIVIDEND", t, "${money(c.declaredDividend)} per share")
+            if (c.payDay >= 0 && c.declaredDividend > 0) add(c.payDay, "DIVIDEND_PAY", t, "${money(c.declaredDividend)} per share")
+            if (c.splitDay >= 0) add(c.splitDay, "SPLIT", t,
+                if (c.splitRatio >= 1) "${c.splitRatio.toInt()}-for-1 split" else "1-for-${Math.round(1 / c.splitRatio)} reverse split")
+            c.deal?.let { add(it.closeDay, "DEAL_CLOSE", t, "Cash-out at ${money(it.offer)} per share (if the deal completes)") }
+        }
+        for (ipo in market.ipoPipeline) add(ipo.day, "IPO", null, "IPO at ${money(ipo.company.initialPrice)}", ipo.company.ticker, ipo.company.name)
+        add(market.nextRateDay, "RATE_DECISION", null, "Fedora Reserve rate decision (now ${"%.2f".format(market.benchmarkRate * 100)}%)")
+        return out.sortedWith(compareBy({ it.day }, { it.kind }, { it.ticker }))
     }
 
     private fun quote(t: TickerSim): Quote {
@@ -333,7 +442,7 @@ class MarketRuntime(
             volume = t.dayVolume,
             change = change,
             changePct = change?.let { c -> t.previousClose?.let { c * 100.0 / it } },
-            marketCap = (t.last / 100.0 * t.company.sharesOutstanding).toLong(),
+            marketCap = (t.last / 100.0 * t.corp.shares).toLong(),
         )
     }
 }

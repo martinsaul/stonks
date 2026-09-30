@@ -3,7 +3,6 @@ package stonks.app
 import stonks.app.accounts.AccountStore
 import stonks.app.accounts.EventLog
 import stonks.app.api.QuoteStats
-import stonks.app.api.QuoteStatsCache
 import stonks.app.auth.AuthService
 import stonks.app.auth.EmailPolicy
 import stonks.app.auth.EmailSender
@@ -38,14 +37,19 @@ class App(
     )
     val candles = CandleStore(db)
     val trading = stonks.app.trading.TradingStore(db)
+    val news = stonks.app.market.NewsStore(db)
     val market = MarketRuntime(
-        WorldStore(db), candles, trading, clock,
+        WorldStore(db), candles, trading, news, clock,
         seedOverride = config.worldSeed,
         backfillSessions = config.backfillSessions,
     )
     val feed = PriceFeed(config.limits.maxSocketsPerAccount) { market.portfolio(it) }
-    val quoteStats = QuoteStatsCache { ticker ->
-        candles.dailyStats(ticker).let { QuoteStats(it.high52, it.low52, it.avgVolume30) }
+    /** Splits per ticker (for adjusting history), cached for a minute. */
+    val splits = stonks.app.api.TtlCache<String, List<stonks.app.market.ActionRow>> { news.splits(it) }
+    val quoteStats = stonks.app.api.TtlCache<String, QuoteStats> { ticker ->
+        val daily = stonks.app.market.adjustForSplits(candles.query(ticker, stonks.engine.sim.Resolution.D1, null, null, 252), splits(ticker))
+        val recent = daily.takeLast(30)
+        QuoteStats(daily.maxOfOrNull { it.high }, daily.minOfOrNull { it.low }, recent.takeIf { it.isNotEmpty() }?.let { r -> r.sumOf { it.volume } / r.size })
     }
     private val housekeeping = Executors.newSingleThreadScheduledExecutor { r -> Thread(r, "housekeeping").apply { isDaemon = true } }
 

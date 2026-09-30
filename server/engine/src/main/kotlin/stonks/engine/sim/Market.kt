@@ -106,6 +106,25 @@ class Market private constructor(
     private var nextListingSerial = 0L
     private var candleSink: CandleSink? = null
 
+    /** Split, listing or delisting, for adjusting and annotating history. */
+    data class CorporateAction(val ticker: String, val day: Int, val kind: Kind, val ratio: Double = 1.0) {
+        enum class Kind { SPLIT, LISTED, DELISTED }
+    }
+    private val actionsOut = ArrayList<CorporateAction>()
+
+    /** Corporate actions since the last call (not kept in snapshots: drain before saving). */
+    fun drainActions(): List<CorporateAction> = ArrayList(actionsOut).also { actionsOut.clear() }
+
+    /** Index level at the last close; the index chain-links through listings and delistings. */
+    var indexClose: Double = INDEX_BASE
+        private set
+
+    /** Equal-weighted index: yesterday's close times the average move since each stock's previous close. */
+    val indexValue: Double get() {
+        val moves = tickerMap.values.mapNotNull { t -> t.previousClose?.let { t.last.toDouble() / it } }
+        return if (moves.isEmpty()) indexClose else indexClose * moves.average()
+    }
+
     /** News since the last call, oldest first. */
     fun drainNews(): List<NewsItem> {
         collectNews()
@@ -404,6 +423,7 @@ class Market private constructor(
         ledger.shortInterest.remove(ticker)
         // Dividends already owed (past the ex-date) are still paid on the pay date.
         tickerMap.remove(ticker)
+        actionsOut += CorporateAction(ticker, day, CorporateAction.Kind.DELISTED)
         delistings += Delisting(ticker, t.company.name, day, price, reason)
         val listingDay = day + worldRng.nextInt(2, 6)
         val company = Ipo.create(listingDay, usedTickers, (tickerMap.values.map { it.company.name } + ipoPipeline.map { it.company.name }).toSet(), worldRng)
@@ -421,6 +441,7 @@ class Market private constructor(
             val t = TickerSim(ipo.company, config, Rng.derive(seed, IPO_SEED_BASE + nextListingSerial++), listedDay = day)
             t.candles.sink = candleSink
             tickerMap[ipo.company.ticker] = t
+            actionsOut += CorporateAction(ipo.company.ticker, day, CorporateAction.Kind.LISTED)
             marketNews += NewsDraft(day, -1, ipo.company.ticker, ipo.company.sector, NewsCategory.LISTING,
                 "${ipo.company.name} (${ipo.company.ticker}) debuts today; opening auction prices the IPO")
         }
@@ -435,6 +456,7 @@ class Market private constructor(
             for (a in ledger.accounts.values) t.playerOrders.cancelAll(a.id, "Cancelled: $ticker split")
             t.applySplit()
             val changed = ledger.split(ticker, ratio, t.last)
+            actionsOut += CorporateAction(ticker, day, CorporateAction.Kind.SPLIT, ratio)
             val what = if (ratio >= 1) "${ratio.toInt()}-for-1 split" else "1-for-${(1 / ratio).roundToLong()} reverse split"
             for ((id, qty) in changed) marketEvents += AccountEvent(id, AccountEvent.Kind.SPLIT, "$ticker $what: you now hold $qty")
             // Dividends owed per share were fixed in cash already; nothing else to adjust.
@@ -540,6 +562,7 @@ class Market private constructor(
 
     fun endSession() {
         val s = checkNotNull(current) { "market closed" }
+        indexClose = indexValue
         tickers.values.forEach { it.endSession() }
         val plans = ledger.accounts.values.associate { it.id to it.plan }
         ledger.accrueDaily(prices, benchmarkRate, ::borrowRate)
@@ -582,6 +605,7 @@ class Market private constructor(
         out.writeList(ipoPipeline) { writeInt(it.day); it.company.writeTo(this) }
         out.writeList(usedTickers.sorted()) { writeUTF(it) }
         out.writeLong(nextListingSerial)
+        out.writeDouble(indexClose)
         out.flush()
     }
 
@@ -614,6 +638,7 @@ class Market private constructor(
         const val RATE_INTERVAL = 48
         const val MAX_RATE = 0.10
         const val DIVIDEND_SHARE = 0.25
+        const val INDEX_BASE = 1000.0
         private const val MAX_BUFFERED_NEWS = 5_000
         private const val IPO_SEED_BASE = 1_000_000L
 
@@ -650,7 +675,11 @@ class Market private constructor(
                     it.ipoPipeline += input.readList { PendingIpo(readInt(), Company.readFrom(this)) }
                     it.usedTickers += input.readList { readUTF() }
                     it.nextListingSerial = input.readLong()
+                    it.indexClose = input.readDouble()
                 } else {
+                    // Continue the old index (average of price relative to IPO price).
+                    val rel = tickers.mapNotNull { t -> t.previousClose?.let { p -> p.toDouble() / t.company.initialPrice } }
+                    if (rel.isNotEmpty()) it.indexClose = INDEX_BASE * rel.average()
                     // Upgraded world: corporate life starts now.
                     it.benchmarkRate = config.benchmarkRate
                     it.nextRateDay = completed + RATE_INTERVAL

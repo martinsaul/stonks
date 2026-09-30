@@ -12,7 +12,12 @@ import kotlinx.serialization.Serializable
 import stonks.app.App
 import stonks.app.auth.OtpRequestResult
 import stonks.app.auth.VerifyResult
+import stonks.app.market.CalendarEvent
 import stonks.app.market.CandleDto
+import stonks.app.market.DelistingDto
+import stonks.app.market.Fundamentals
+import stonks.app.market.NewsDto
+import stonks.app.market.adjustForSplits
 import stonks.app.market.Depth
 import stonks.app.market.IndexQuote
 import stonks.app.market.Quote
@@ -27,10 +32,18 @@ import java.util.concurrent.ConcurrentHashMap
 @Serializable data class LoginResponse(val sessionId: String, val accountId: Long, val expiresAt: String, val serverTime: Long)
 @Serializable data class BadgeDto(val badge: String, val title: String, val description: String, val count: Int, val lastAwardedAt: String)
 @Serializable data class MeResponse(val accountId: Long, val email: String, val createdAt: String, val badges: List<BadgeDto>)
-@Serializable data class MarketResponse(val time: String, val session: SessionInfo, val regime: String, val index: IndexQuote, val quotes: List<Quote>)
+@Serializable data class MarketResponse(
+    val time: String, val session: SessionInfo, val regime: String, val index: IndexQuote, val quotes: List<Quote>,
+    val benchmarkRate: Double, val latestNewsId: Long,
+)
 @Serializable data class CompanyProfile(val ticker: String, val name: String, val sector: String, val sharesOutstanding: Long)
+@Serializable data class NewsResponse(val news: List<NewsDto>)
+@Serializable data class CalendarResponse(val benchmarkRate: Double, val events: List<CalendarEvent>, val delistings: List<DelistingDto>)
 @Serializable data class QuoteStats(val high52w: Long?, val low52w: Long?, val avgVolume30d: Long?)
-@Serializable data class QuoteResponse(val time: String, val session: SessionInfo, val quote: Quote, val profile: CompanyProfile, val stats: QuoteStats, val depth: Depth)
+@Serializable data class QuoteResponse(
+    val time: String, val session: SessionInfo, val quote: Quote, val profile: CompanyProfile, val stats: QuoteStats, val depth: Depth,
+    val fundamentals: Fundamentals,
+)
 @Serializable data class CandlesResponse(val ticker: String, val resolution: String, val candles: List<CandleDto>, val live: CandleDto? = null)
 
 private val RES = mapOf("5s" to Resolution.S5, "1m" to Resolution.M1, "1d" to Resolution.D1)
@@ -86,28 +99,43 @@ fun Route.signedRoutes(app: App) {
 
         get("/market") {
             val s = app.market.state
-            call.respond(MarketResponse(s.time.toString(), s.session, s.regime, s.index, s.quotes))
+            call.respond(MarketResponse(s.time.toString(), s.session, s.regime, s.index, s.quotes, s.benchmarkRate, s.latestNewsId))
         }
 
         get("/quotes/{ticker}") {
             val s = app.market.state
             val ticker = call.parameters["ticker"]!!.uppercase()
-            val quote = s.quotesByTicker[ticker] ?: throw notFound("Unknown ticker $ticker.")
-            val company = app.market.market.tickers.getValue(ticker).company
+            val quote = s.quotesByTicker[ticker] ?: throw notFound(unknownTicker(s, ticker))
+            val f = s.fundamentals.getValue(ticker)
             val stats = app.quoteStats(ticker)
             call.respond(
                 QuoteResponse(
                     s.time.toString(), s.session, quote,
-                    CompanyProfile(company.ticker, company.name, company.sector.name, company.sharesOutstanding),
-                    stats, s.depth.getValue(ticker),
+                    CompanyProfile(quote.ticker, quote.name, quote.sector, f.shares),
+                    stats, s.depth.getValue(ticker), f,
                 ),
             )
+        }
+
+        get("/news") {
+            val q = call.request.queryParameters
+            val ticker = q["ticker"]?.uppercase()?.takeIf { it.matches(TICKER) }
+            val limit = (q["limit"]?.toIntOrNull() ?: 30).coerceIn(1, 100)
+            val sector = ticker?.let { app.market.state.quotesByTicker[it]?.sector }
+            call.respond(NewsResponse(app.news.query(ticker, sector, q["before"]?.toLongOrNull(), q["after"]?.toLongOrNull(), limit)))
+        }
+
+        get("/calendar") {
+            val s = app.market.state
+            call.respond(CalendarResponse(s.benchmarkRate, s.calendar, s.delistings))
         }
 
         get("/quotes/{ticker}/candles") {
             val ticker = call.parameters["ticker"]!!.uppercase()
             val state = app.market.state
-            val quote = state.quotesByTicker[ticker] ?: throw notFound("Unknown ticker $ticker.")
+            val quote = state.quotesByTicker[ticker]
+            // Delisted companies keep their history.
+            if (quote == null && state.delistings.none { it.ticker == ticker }) throw notFound(unknownTicker(state, ticker))
             val resName = call.request.queryParameters["res"] ?: "1d"
             val res = RES[resName] ?: throw badRequest("res must be one of ${RES.keys}.")
             val limit = (call.request.queryParameters["limit"]?.toIntOrNull() ?: 500).coerceIn(1, MAX_CANDLES)
@@ -116,10 +144,10 @@ fun Route.signedRoutes(app: App) {
             // History is heavier than a quote: charge proportionally to the rows requested.
             app.guard.charge(call.principal, limit / 250.0)
 
-            val rows = app.candles.query(ticker, res, from, to, limit)
+            val rows = adjustForSplits(app.candles.query(ticker, res, from, to, limit), app.splits(ticker))
                 .map { CandleDto(it.time.toString(), it.open, it.high, it.low, it.close, it.volume) }
             val live = when {
-                to != null -> null
+                to != null || quote == null -> null
                 res == Resolution.M1 -> state.liveMinute[ticker]
                 res == Resolution.D1 && state.session.state == "OPEN" && quote.open != null ->
                     CandleDto(state.session.opensAt!!, quote.open, quote.high!!, quote.low!!, quote.last, quote.volume)
@@ -138,13 +166,19 @@ private fun parseInstant(s: String): Instant = try {
     throw badRequest("Invalid time '$s' (ISO-8601 or epoch milliseconds).")
 }
 
-/** Caches per-ticker daily statistics for a minute. */
-class QuoteStatsCache(private val load: (String) -> QuoteStats) {
-    private val cache = ConcurrentHashMap<String, Pair<QuoteStats, Long>>()
+private val TICKER = Regex("^[A-Z]{1,5}$")
 
-    operator fun invoke(ticker: String): QuoteStats {
+private fun unknownTicker(s: stonks.app.market.MarketState, ticker: String): String =
+    s.delistings.lastOrNull { it.ticker == ticker }?.let { "$ticker was delisted: ${it.reason}." } ?: "Unknown ticker $ticker."
+
+/** Caches per-key values for a minute. */
+class TtlCache<K : Any, V : Any>(private val ttlMillis: Long = 60_000, private val load: (K) -> V) {
+    private val cache = ConcurrentHashMap<K, Pair<V, Long>>()
+
+    operator fun invoke(key: K): V {
         val now = System.currentTimeMillis()
-        cache[ticker]?.let { (stats, until) -> if (until > now) return stats }
-        return load(ticker).also { cache[ticker] = it to now + 60_000 }
+        cache[key]?.let { (v, until) -> if (until > now) return v }
+        if (cache.size > 10_000) cache.clear()
+        return load(key).also { cache[key] = it to now + ttlMillis }
     }
 }

@@ -33,6 +33,12 @@ data class TickFrame(
     val depth: Map<String, Depth>,
     /** The connected player's portfolio, if they have a trading account. */
     val account: stonks.app.trading.PortfolioDto? = null,
+    /** Central bank rate, percent. */
+    val benchmarkRate: Double = 0.0,
+    /** Newest news id: fetch /news?after=… when it grows. */
+    val latestNewsId: Long = 0,
+    /** Changes when companies list or delist. */
+    val listings: Int = 0,
 )
 
 /** Sent between ticks when only the player's own account changed. */
@@ -162,6 +168,9 @@ class PriceFeed(
         quotes = if (c.quotes.isEmpty()) emptyList() else s.quotes.filter { it.ticker in c.quotes },
         depth = if (c.depth.isEmpty()) emptyMap() else s.depth.filterKeys { it in c.depth },
         account = portfolioOf(c.principal.accountId),
+        benchmarkRate = s.benchmarkRate,
+        latestNewsId = s.latestNewsId,
+        listings = s.quotes.map { it.ticker }.hashCode(),
     )
 
     companion object {
