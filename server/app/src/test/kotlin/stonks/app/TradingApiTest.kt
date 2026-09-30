@@ -42,10 +42,11 @@ class TradingApiTest {
 
     private suspend fun HttpClient.login(email: String): S {
         val key = DeviceKey()
-        val code = json(post("/api/v1/auth/otp/request") { contentType(ContentType.Application.Json); setBody("""{"email":"$email"}""") }.bodyAsText())["devCode"]!!.jsonPrimitive.content
+        val challenge = json(post("/api/v1/auth/otp/request") { contentType(ContentType.Application.Json); setBody("""{"email":"$email"}""") }.bodyAsText())["challengeId"]!!.jsonPrimitive.content
+        // The fixed development code (STONKS_FIXED_OTP default).
         val r = json(post("/api/v1/auth/otp/verify") {
             contentType(ContentType.Application.Json)
-            setBody("""{"email":"$email","code":"$code","publicKey":"${key.publicSpki}"}""")
+            setBody("""{"challengeId":"$challenge","code":"111111","publicKey":"${key.publicSpki}"}""")
         }.bodyAsText())
         return S(r["sessionId"]!!.jsonPrimitive.content, key, r["accountId"]!!.jsonPrimitive.long)
     }

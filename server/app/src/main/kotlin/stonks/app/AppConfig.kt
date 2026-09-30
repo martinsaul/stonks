@@ -22,6 +22,12 @@ data class AppConfig(
     /** Honour X-Forwarded-For (only behind a reverse proxy you control). */
     val trustProxy: Boolean = false,
     val corsOrigins: List<String> = emptyList(),
+    /**
+     * TEMPORARY: every sign-in code is this value (until real email delivery exists).
+     * Anyone who knows it can sign in as any address. Set STONKS_FIXED_OTP to an empty
+     * string to use random codes.
+     */
+    val fixedOtp: String? = "111111",
     /** Development only: shifts the server clock, e.g. to try the market outside hours. */
     val devTimeShiftHours: Long = 0,
     /** Overrides the built-in email provider allowlist when non-empty. */
@@ -42,8 +48,9 @@ data class AppConfig(
         val inFlightPerAccount: Int = 4,
         val maxSessionsPerAccount: Int = 5,
         val maxSocketsPerAccount: Int = 3,
-        /** OTP requests: per address per 15 minutes, and per IP per hour. */
-        val otpPerEmail: Int = 3,
+        /** Sign-in emails per address per 15 minutes (beyond this: silently not sent). */
+        val otpEmailsPerAddress: Int = 5,
+        /** Code requests per IP per hour. */
         val otpPerIpHour: Int = 10,
         /** OTP verification attempts per IP per hour. */
         val verifyPerIpHour: Int = 30,
@@ -68,12 +75,17 @@ data class AppConfig(
                 trustProxy = str("TRUST_PROXY")?.toBoolean() ?: false,
                 corsOrigins = list("CORS_ORIGINS"),
                 devTimeShiftHours = str("DEV_TIME_SHIFT_HOURS")?.toLong() ?: 0,
+                fixedOtp = env["STONKS_FIXED_OTP"].let { if (it == null) "111111" else it.trim().ifEmpty { null } },
                 allowedEmailDomains = list("ALLOWED_EMAIL_DOMAINS").map { it.lowercase() }.toSet(),
             )
             if (c.otpPepper == DEV_PEPPER && !c.devMode) {
                 log.warn("STONKS_OTP_PEPPER is not set; using the development default. Set it in production.")
             }
             if (c.devMode) log.warn("STONKS_DEV_MODE is on: OTP codes are returned in API responses.")
+            c.fixedOtp?.let {
+                require(Regex("^[0-9]{6}$").matches(it)) { "STONKS_FIXED_OTP must be 6 digits (or empty to disable)" }
+                log.warn("STONKS_FIXED_OTP is set: every sign-in code is {}. Anyone can sign in as any address. Temporary only.", it)
+            }
             require(c.devTimeShiftHours == 0L || c.devMode) { "STONKS_DEV_TIME_SHIFT_HOURS requires STONKS_DEV_MODE" }
             return c
         }

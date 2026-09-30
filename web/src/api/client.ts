@@ -77,10 +77,10 @@ class ApiClient {
     return this.unsigned("/api/v1/auth/otp/request", { email });
   }
 
-  async verifyCode(email: string, code: string): Promise<LoginResponse> {
+  async verifyCode(challengeId: string, code: string): Promise<LoginResponse> {
     const key = await generateDeviceKey();
     const publicKey = await exportPublicKey(key);
-    const res = await this.unsigned<LoginResponse>("/api/v1/auth/otp/verify", { email, code, publicKey });
+    const res = await this.unsigned<LoginResponse>("/api/v1/auth/otp/verify", { challengeId, code, publicKey });
     this.setClockOffset(res.serverTime - Date.now());
     await saveDeviceKey(key);
     this.key = key;

@@ -30,7 +30,6 @@ class Guard(
     private val sessionLimiter = RateLimiter(limits.sessionBurst, limits.sessionPerSecond)
     private val accountLimiter = RateLimiter(limits.accountBurst, limits.accountPerSecond)
     private val inFlight = InFlightLimiter(limits.inFlightPerAccount)
-    val otpPerEmail = RateLimiter.perWindow(limits.otpPerEmail, 15 * 60)
     val otpPerIp = RateLimiter.perWindow(limits.otpPerIpHour, 60 * 60)
     val verifyPerIp = RateLimiter.perWindow(limits.verifyPerIpHour, 60 * 60)
 

@@ -33,6 +33,8 @@ class App(
     val auth = AuthService(
         db, EmailPolicy(config.allowedEmailDomains), accounts, sessions, events, emailSender,
         config.otpPepper, config.devMode, clock,
+        fixedCode = config.fixedOtp,
+        emailsPerAddress = config.limits.otpEmailsPerAddress,
     )
     val candles = CandleStore(db)
     val trading = stonks.app.trading.TradingStore(db)
@@ -53,6 +55,7 @@ class App(
         market.bootstrap()
         if (liveLoop) market.start()
         housekeeping.scheduleWithFixedDelay({ runCatching { sessions.flushLastSeen() } }, 60, 60, TimeUnit.SECONDS)
+        housekeeping.scheduleWithFixedDelay({ runCatching { auth.cleanup() } }, 5, 60, TimeUnit.MINUTES)
     }
 
     override fun close() {

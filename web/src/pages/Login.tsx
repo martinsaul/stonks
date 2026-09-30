@@ -9,6 +9,7 @@ export function Login({ onSignedIn }: { onSignedIn: () => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [devCode, setDevCode] = useState<string>();
+  const [challengeId, setChallengeId] = useState<string>();
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -17,11 +18,12 @@ export function Login({ onSignedIn }: { onSignedIn: () => void }) {
     try {
       if (step === "email") {
         const r = await api.requestCode(email);
+        setChallengeId(r.challengeId);
         setDevCode(r.devCode ?? undefined);
         if (r.devCode) setCode(r.devCode);
         setStep("code");
       } else {
-        await api.verifyCode(email, code);
+        await api.verifyCode(challengeId!, code);
         onSignedIn();
       }
     } catch (err) {
@@ -51,7 +53,7 @@ export function Login({ onSignedIn }: { onSignedIn: () => void }) {
             <label htmlFor="code">6-digit code</label>
             <input id="code" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} required
               value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} autoFocus />
-            {devCode && <span className="hint">Development mode: the code was filled in for you.</span>}
+            {devCode && <span className="hint">Early access: the code ({devCode}) was filled in for you.</span>}
           </div>
         )}
         <button className="btn" disabled={busy}>{busy ? "Please wait…" : step === "email" ? "Send code" : "Sign in"}</button>

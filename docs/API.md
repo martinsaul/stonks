@@ -12,11 +12,20 @@ is signed and rate-limited.
 
 ```
 POST /api/v1/auth/otp/request   {"email": "you@gmail.com"}
-→ 202 {"expiresAt": "…"}                      (a 6-digit code is emailed)
+→ 202 {"challengeId": "…", "expiresAt": "…"}   (a 6-digit code is emailed)
 
-POST /api/v1/auth/otp/verify    {"email": "…", "code": "123456", "publicKey": "<base64url SPKI>"}
-→ 200 {"sessionId": "…", "accountId": 1, "expiresAt": "…", "newAccount": true, "serverTime": 1790661706012}
+POST /api/v1/auth/otp/verify    {"challengeId": "…", "code": "123456", "publicKey": "<base64url SPKI>"}
+→ 200 {"sessionId": "…", "accountId": 1, "expiresAt": "…", "serverTime": 1790661706012}
 ```
+
+Each request creates its own challenge, and only the requester learns its
+`challengeId`. Other people's requests can't replace your code or use up its 5
+attempts. Too many requests for one address stop *sending* email but still return
+`202` (no lockout, no signal).
+
+> **Temporary:** while email delivery is a stub, every code is `111111`
+> (`STONKS_FIXED_OTP`), and the response includes it as `devCode`. Anyone can then
+> sign in as any address. Set `STONKS_FIXED_OTP=` (empty) to use random codes.
 
 Before verifying, the client generates an **ECDSA P-256 key pair** and sends the public
 key (SubjectPublicKeyInfo DER, base64url without padding). In browsers use WebCrypto
@@ -25,8 +34,10 @@ with `extractable: false`, so the private key can never leave the device, and st
 useless without it.
 
 Registration and login are the same flow. Addresses must be at a well-known provider.
-Aliases (`+tags`, Gmail dots) of an existing account are refused with `403 alias_refused`,
-and the original account receives a "Nice Try" badge.
+Gmail dot variants reach the same account. `+tag` aliases are refused with
+`403 alias_refused`, with the same response whether or not the base account exists
+(no account enumeration). If it does exist, that account quietly receives a
+"Nice Try" badge.
 
 ### 2. Sign every request (`STONKS-V1`)
 
@@ -146,7 +157,7 @@ execution. The WebSocket `tick` frame carries your `account` (the same shape as
 | Concurrent in-flight requests per account | 4 |
 | Sessions per account | 5 (the oldest is revoked) |
 | WebSockets per account | 3; client messages 5/s |
-| OTP requests | 3 per address per 15 min; 10 per IP per hour |
+| OTP requests | 10 per IP per hour; emails capped at 5 per address per 15 min (silently) |
 | OTP verification | 30 per IP per hour; 5 wrong codes lock a code |
 
 Most calls cost 1 token. Candle requests cost an extra `limit / 250`. Exceeding a

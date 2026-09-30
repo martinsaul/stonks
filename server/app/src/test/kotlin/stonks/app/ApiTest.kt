@@ -39,9 +39,10 @@ class ApiTest {
     private val clock = TestClock(Instant.parse("2026-09-29T17:45:00Z"))
     private val config = AppConfig(
         devMode = true,
+        fixedOtp = null, // random codes, as in production
+        limits = AppConfig.Limits(sessionBurst = 30.0, sessionPerSecond = 0.001, accountBurst = 1000.0, otpPerIpHour = 100, verifyPerIpHour = 200),
         backfillSessions = 3,
         worldSeed = 42,
-        limits = AppConfig.Limits(sessionBurst = 30.0, sessionPerSecond = 0.001, accountBurst = 1000.0),
     )
     private val app = App(config, TestDb.fresh(), clock).also { it.start(liveLoop = false) }
 
@@ -61,24 +62,29 @@ class ApiTest {
     private data class Session(val id: String, val key: DeviceKey, val accountId: Long)
 
     private suspend fun HttpClient.login(email: String, key: DeviceKey = DeviceKey()): Session {
-        val code = requestCode(email)
-        val r = post("/api/v1/auth/otp/verify") {
-            contentType(ContentType.Application.Json)
-            setBody("""{"email":"$email","code":"$code","publicKey":"${key.publicSpki}"}""")
-        }
+        val (challenge, code) = requestCode(email)
+        val r = verify(challenge, code, key)
         assertEquals(HttpStatusCode.OK, r.status, r.bodyAsText())
         val body = json(r.bodyAsText())
         return Session(body["sessionId"]!!.jsonPrimitive.content, key, body["accountId"]!!.jsonPrimitive.long)
     }
 
-    private suspend fun HttpClient.requestCode(email: String): String {
+    /** Returns (challengeId, code). */
+    private suspend fun HttpClient.requestCode(email: String): Pair<String, String> {
         val r = post("/api/v1/auth/otp/request") {
             contentType(ContentType.Application.Json)
             setBody("""{"email":"$email"}""")
         }
         assertEquals(HttpStatusCode.Accepted, r.status, r.bodyAsText())
-        return json(r.bodyAsText())["devCode"]!!.jsonPrimitive.content
+        val b = json(r.bodyAsText())
+        return b["challengeId"]!!.jsonPrimitive.content to b["devCode"]!!.jsonPrimitive.content
     }
+
+    private suspend fun HttpClient.verify(challenge: String, code: String, key: DeviceKey = DeviceKey()) =
+        post("/api/v1/auth/otp/verify") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"challengeId":"$challenge","code":"$code","publicKey":"${key.publicSpki}"}""")
+        }
 
     private suspend fun HttpClient.signedGet(
         s: Session,
@@ -148,12 +154,9 @@ class ApiTest {
         val c = client()
         val main = c.login("bananas@gmail.com")
 
-        for (alias in listOf("bananas+abc@gmail.com", "ba.nanas@gmail.com")) {
-            val code = c.requestCode(alias)
-            val r = c.post("/api/v1/auth/otp/verify") {
-                contentType(ContentType.Application.Json)
-                setBody("""{"email":"$alias","code":"$code","publicKey":"${DeviceKey().publicSpki}"}""")
-            }
+        for (alias in listOf("bananas+abc@gmail.com", "bananas+xyz@googlemail.com")) {
+            val (challenge, code) = c.requestCode(alias)
+            val r = c.verify(challenge, code)
             assertEquals(HttpStatusCode.Forbidden, r.status)
             assertEquals("alias_refused", r.error())
         }
@@ -165,9 +168,22 @@ class ApiTest {
     }
 
     @Test
-    fun `plus aliases without a base account and unknown providers are refused`() = testApplication {
+    fun `plus aliases are refused the same way whether or not the base account exists`() = testApplication {
         val c = client()
-        for (email in listOf("nobody+tag@gmail.com", "me@mycompany.io", "x@mailinator.com")) {
+        c.login("exists@gmail.com")
+        val responses = listOf("exists+alt@gmail.com", "nobody+alt@gmail.com").map { alias ->
+            val (challenge, code) = c.requestCode(alias) // same 202 for both
+            val r = c.verify(challenge, code)
+            r.status to r.bodyAsText()
+        }
+        assertEquals(responses[0], responses[1]) // indistinguishable: no account enumeration
+        assertEquals(HttpStatusCode.Forbidden, responses[0].first)
+    }
+
+    @Test
+    fun `unknown providers are refused`() = testApplication {
+        val c = client()
+        for (email in listOf("me@mycompany.io", "x@mailinator.com")) {
             val r = c.post("/api/v1/auth/otp/request") {
                 contentType(ContentType.Application.Json)
                 setBody("""{"email":"$email"}""")
@@ -178,21 +194,36 @@ class ApiTest {
     }
 
     @Test
+    fun `gmail dot variants sign in to the same account without a badge`() = testApplication {
+        val c = client()
+        val main = c.login("john.doe@gmail.com")
+        val dotted = c.login("johndoe@gmail.com")
+        val again = c.login("j.o.h.n.d.o.e@googlemail.com")
+        assertEquals(main.accountId, dotted.accountId)
+        assertEquals(main.accountId, again.accountId)
+        assertTrue(json(c.signedGet(main, "/api/v1/me").bodyAsText())["badges"]!!.jsonArray.isEmpty())
+    }
+
+    @Test
+    fun `other people's code requests can't lock a player out`() = testApplication {
+        val c = client()
+        val (mine, code) = c.requestCode("victim@gmail.com")
+        // An attacker requests many codes for the same address and guesses wrong on them.
+        repeat(8) {
+            val (theirs, _) = c.requestCode("vic.tim@gmail.com")
+            repeat(5) { c.verify(theirs, "000000") }
+        }
+        // The victim's own challenge is untouched.
+        assertEquals(HttpStatusCode.OK, c.verify(mine, code).status)
+    }
+
+    @Test
     fun `codes lock after too many wrong guesses`() = testApplication {
         val c = client()
-        val code = c.requestCode("guess@icloud.com")
-        val wrong = if (code == "000000") "111111" else "000000"
-        repeat(5) {
-            c.post("/api/v1/auth/otp/verify") {
-                contentType(ContentType.Application.Json)
-                setBody("""{"email":"guess@icloud.com","code":"$wrong","publicKey":"${DeviceKey().publicSpki}"}""")
-            }
-        }
-        val r = c.post("/api/v1/auth/otp/verify") {
-            contentType(ContentType.Application.Json)
-            setBody("""{"email":"guess@icloud.com","code":"$code","publicKey":"${DeviceKey().publicSpki}"}""")
-        }
-        assertEquals("otp_rejected", r.error())
+        val (challenge, code) = c.requestCode("guess@icloud.com")
+        val wrong = if (code == "000000") "111112" else "000000"
+        repeat(5) { c.verify(challenge, wrong) }
+        assertEquals("otp_rejected", c.verify(challenge, code).error())
     }
 
     @Test

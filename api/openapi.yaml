@@ -141,25 +141,25 @@ components:
       properties: { email: { type: string, format: email } }
     OtpRequested:
       type: object
-      required: [expiresAt]
+      required: [challengeId, expiresAt]
       properties:
+        challengeId: { type: string, description: Pass to /otp/verify. Known only to the requester. }
         expiresAt: { type: string, format: date-time }
-        devCode: { type: string, description: Only when the server runs in dev mode }
+        devCode: { type: string, description: Only in dev mode or while a fixed code is configured }
     OtpVerify:
       type: object
-      required: [email, code, publicKey]
+      required: [challengeId, code, publicKey]
       properties:
-        email: { type: string }
+        challengeId: { type: string }
         code: { type: string, pattern: "^[0-9]{6}$" }
         publicKey: { type: string, description: base64url SPKI DER ECDSA P-256 public key }
     LoginResponse:
       type: object
-      required: [sessionId, accountId, expiresAt, newAccount, serverTime]
+      required: [sessionId, accountId, expiresAt, serverTime]
       properties:
         sessionId: { type: string }
         accountId: { type: integer, format: int64 }
         expiresAt: { type: string, format: date-time }
-        newAccount: { type: boolean }
         serverTime: { type: integer, format: int64 }
     Badge:
       type: object

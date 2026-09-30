@@ -22,9 +22,9 @@ import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
 
 @Serializable data class OtpRequest(val email: String)
-@Serializable data class OtpRequested(val expiresAt: String, val devCode: String? = null)
-@Serializable data class OtpVerify(val email: String, val code: String, val publicKey: String)
-@Serializable data class LoginResponse(val sessionId: String, val accountId: Long, val expiresAt: String, val newAccount: Boolean, val serverTime: Long)
+@Serializable data class OtpRequested(val challengeId: String, val expiresAt: String, val devCode: String? = null)
+@Serializable data class OtpVerify(val challengeId: String, val code: String, val publicKey: String)
+@Serializable data class LoginResponse(val sessionId: String, val accountId: Long, val expiresAt: String, val serverTime: Long)
 @Serializable data class BadgeDto(val badge: String, val title: String, val description: String, val count: Int, val lastAwardedAt: String)
 @Serializable data class MeResponse(val accountId: Long, val email: String, val createdAt: String, val badges: List<BadgeDto>)
 @Serializable data class MarketResponse(val time: String, val session: SessionInfo, val regime: String, val index: IndexQuote, val quotes: List<Quote>)
@@ -43,10 +43,9 @@ fun Route.authRoutes(app: App) {
             app.guard.checkIp(ip)
             val req = call.receive<OtpRequest>()
             app.guard.limit(app.guard.otpPerIp, ip, "Too many code requests from this network. Try again later.")
-            app.guard.limit(app.guard.otpPerEmail, req.email.trim().lowercase(), "Too many codes requested for this address. Try again later.")
             when (val r = app.auth.requestOtp(req.email)) {
                 is OtpRequestResult.Rejected -> throw badRequest(r.reason, "email_rejected")
-                is OtpRequestResult.Sent -> call.respond(HttpStatusCode.Accepted, OtpRequested(r.expiresAt.toString(), r.devCode))
+                is OtpRequestResult.Sent -> call.respond(HttpStatusCode.Accepted, OtpRequested(r.challengeId, r.expiresAt.toString(), r.devCode))
             }
         }
 
@@ -55,14 +54,13 @@ fun Route.authRoutes(app: App) {
             app.guard.checkIp(ip)
             app.guard.limit(app.guard.verifyPerIp, ip, "Too many attempts. Try again later.")
             val req = call.receive<OtpVerify>()
-            when (val r = app.auth.verify(req.email, req.code, req.publicKey, call.request.userAgent(), ip)) {
+            when (val r = app.auth.verify(req.challengeId, req.code, req.publicKey, call.request.userAgent(), ip)) {
                 is VerifyResult.Rejected -> throw badRequest(r.reason, "otp_rejected")
                 VerifyResult.AliasRefused -> throw ApiException(
-                    HttpStatusCode.Forbidden, "alias_refused",
-                    "Nice try. That address is an alias of an existing account, which has been awarded a badge for your effort.",
+                    HttpStatusCode.Forbidden, "alias_refused", "Nice try. Email aliases (+tags) aren't allowed.",
                 )
                 is VerifyResult.LoggedIn -> call.respond(
-                    LoginResponse(r.session.id, r.accountId, r.session.expiresAt.toString(), r.newAccount, app.clock.millis()),
+                    LoginResponse(r.session.id, r.accountId, r.session.expiresAt.toString(), app.clock.millis()),
                 )
             }
         }

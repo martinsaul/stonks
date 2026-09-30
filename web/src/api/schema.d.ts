@@ -537,13 +537,15 @@ export interface components {
             email: string;
         };
         OtpRequested: {
+            /** @description Pass to /otp/verify. Known only to the requester. */
+            challengeId: string;
             /** Format: date-time */
             expiresAt: string;
-            /** @description Only when the server runs in dev mode */
+            /** @description Only in dev mode or while a fixed code is configured */
             devCode?: string;
         };
         OtpVerify: {
-            email: string;
+            challengeId: string;
             code: string;
             /** @description base64url SPKI DER ECDSA P-256 public key */
             publicKey: string;
@@ -554,7 +556,6 @@ export interface components {
             accountId: number;
             /** Format: date-time */
             expiresAt: string;
-            newAccount: boolean;
             /** Format: int64 */
             serverTime: number;
         };

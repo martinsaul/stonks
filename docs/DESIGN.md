@@ -450,12 +450,13 @@ r = resets performed while in debt within the trailing 180 days
   iCloud, Proton, …). No temp mail, no custom domains.
 - **Address normalization** before uniqueness checks: strip `+tags`; remove dots
   for Gmail; lowercase. Blocks `john.doe+alt@gmail.com`-style aliases.
-- **Alias trap:** registering with an alias (`+tag`, Gmail dots) of an address
-  that already has an account → the OTP is sent and verified as normal, then
-  registration is refused and the **main account receives a unique cosmetic
-  shame badge** ("Nice Try"). Benign: it does not count toward bankruptcy badges
-  or leaderboard tiers. If the base address has no account, the alias is simply
-  refused up front.
+- **Alias trap:** a `+tag` alias is verified as normal, then refused. If it aliases
+  an existing account, that **account receives a unique cosmetic shame badge**
+  ("Nice Try"; benign, not a bankruptcy badge or leaderboard tier). The response
+  is identical either way, so it can't be used to discover accounts. Gmail dot
+  variants are the same inbox and simply sign in to the same account.
+- **Temporary fixed code:** every sign-in code is `111111` until real email delivery
+  exists (`STONKS_FIXED_OTP`; empty to disable).
 - OTP: short expiry, rate-limited per address and IP. Long-lived sessions so
   players aren't asked for a code every visit.
 - **Email delivery: dummy implementation with a TODO for now** (may use an
