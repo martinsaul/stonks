@@ -24,6 +24,14 @@ class Account(val id: Long, var cash: Cents, var plan: Plan = Plan.ROOKIE) {
     var lifetimeRealized: Cents = 0
     var totalCommissions: Cents = 0
     var totalInterest: Cents = 0
+    /** What survives resets: upgrades, badges of shame, claims, reset history. */
+    val standing = Standing()
+    val bonds = ArrayList<BondHolding>()
+    /** Price extremes for each long position while held (achievements). */
+    val watches = HashMap<String, PositionWatch>()
+
+    /** Bonds count toward net worth at face value (but not as margin collateral). */
+    val bondValue: Cents get() = bonds.sumOf { it.principal }
 
     fun position(ticker: String): Position = positions.getOrPut(ticker) { Position() }
     fun quantity(ticker: String): Long = positions[ticker]?.quantity ?: 0
@@ -251,10 +259,13 @@ class Ledger {
             writeLong(a.lifetimeRealized); writeLong(a.totalCommissions); writeLong(a.totalInterest)
             writeList(a.positions.entries.toList()) { (t, p) -> writeUTF(t); writeLong(p.quantity); writeLong(p.costBasis) }
             writeList(a.reservations.entries.sortedBy { it.key }) { (k, v) -> writeLong(k); writeLong(v) }
+            a.standing.writeTo(this)
+            writeBonds(a.bonds)
+            writeWatches(a.watches)
         }
     }
 
-    fun readFrom(input: DataInputStream) {
+    fun readFrom(input: DataInputStream, version: Int) {
         accounts.clear()
         shortInterest.clear()
         input.readList {
@@ -262,6 +273,13 @@ class Ledger {
             a.lifetimeRealized = readLong(); a.totalCommissions = readLong(); a.totalInterest = readLong()
             readList { a.positions[readUTF()] = Position(readLong(), readLong()) }
             readList { a.reservations[readLong()] = readLong() }
+            if (version >= 4) {
+                a.standing.readFrom(this)
+                a.bonds += readBonds()
+                readWatches(a.watches)
+            } else {
+                a.standing.runStartCash = EconomyRules.BASE_STARTING_CASH
+            }
             a
         }.forEach { a ->
             accounts[a.id] = a

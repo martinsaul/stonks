@@ -205,6 +205,11 @@ class PlayerOrders(private val ticker: String, private val book: OrderBook) {
      * scheduled for a later session, and children still waiting on a live parent,
      * carry over). GTC orders expire after [GTC_DAYS] game days.
      */
+    /** Cancels everything for [accountId], liquidations included (account wiped). */
+    fun cancelEverything(accountId: Long, reason: String) {
+        legs.values.filter { it.accountId == accountId && !it.status.done }.forEach { finish(it, LegStatus.CANCELLED, reason) }
+    }
+
     fun endSession(day: Int) {
         at(day, Int.MAX_VALUE - 1)
         for (leg in legs.values.toList()) {

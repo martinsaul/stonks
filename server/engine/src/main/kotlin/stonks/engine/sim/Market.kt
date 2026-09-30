@@ -25,6 +25,12 @@ import stonks.engine.trading.OrderRequest
 import stonks.engine.trading.Plan
 import stonks.engine.trading.PlayerGateway
 import stonks.engine.trading.Structure
+import stonks.engine.trading.BondHolding
+import stonks.engine.trading.BondOffering
+import stonks.engine.trading.EconomyAction
+import stonks.engine.trading.EconomyRules
+import stonks.engine.trading.PositionWatch
+import stonks.engine.trading.ResetRecord
 import stonks.engine.world.CompanyStatus
 import stonks.engine.world.Corporate
 import stonks.engine.world.Headlines
@@ -198,7 +204,9 @@ class Market private constructor(
             val a = ledger.account(leg.accountId) ?: return 0L to 0L
             val planBefore = a.plan
             val commission = a.plan.commission(qty, price, leg.filled == 0L, leg.notional)
+            val before = a.positions[leg.ticker]?.let { it.quantity to it.averagePrice }
             val realized = ledger.applyFill(a, leg.ticker, leg.spec.side, qty, price, commission)
+            watchPosition(a, leg.ticker, before, price)
             if (a.plan != planBefore) marketEvents += AccountEvent(a.id, AccountEvent.Kind.PLAN_UPGRADED, a.plan.name)
             return commission to realized
         }
@@ -234,7 +242,10 @@ class Market private constructor(
 
     fun openAccount(accountId: Long, cash: Cents): Boolean {
         if (ledger.account(accountId) != null) return false
-        ledger.open(accountId, cash)
+        ledger.open(accountId, cash).standing.apply {
+            runStartCash = cash
+            runStartDay = day
+        }
         marketEvents += AccountEvent(accountId, AccountEvent.Kind.OPENED, cash.toString())
         return true
     }
@@ -322,6 +333,7 @@ class Market private constructor(
         applySplits()
         payDividends()
         recordDividendEntitlements(weekend)
+        matureBonds()
 
         current = session
         val fills = tickers.mapValues { (ticker, t) ->
@@ -330,6 +342,222 @@ class Market private constructor(
         }
         collectNews()
         return fills
+    }
+
+    // ---- Player economy ------------------------------------------------------------
+
+    /** Admin-issued bond offerings, oldest first. */
+    val bondOfferings = ArrayList<BondOffering>()
+    private var nextBondId = 1L
+
+    /** Net worth: equity plus bonds at face value. */
+    fun netWorth(a: stonks.engine.trading.Account): Cents =
+        Math.addExact(ledger.figures(a, prices).equity, a.bondValue)
+
+    /** Current starting cash for [a] (5k + 1k per upgrade level). */
+    fun startingCash(a: stonks.engine.trading.Account): Cents = EconomyRules.startingCash(a.standing.cashLevel)
+
+    /** Wall-clock time of the current tick (or last close), epoch ms. */
+    private fun nowMillis(): Long = current?.let { it.tickTime(tick).toEpochMilli() } ?: lastSessionClose?.toEpochMilli() ?: 0L
+
+    /**
+     * Applies a player economy action at [at] (epoch ms, from the input log). [key] makes
+     * the resulting event unique across replays. Returns a rejection reason or null.
+     */
+    fun economy(accountId: Long, action: EconomyAction, at: Long, key: String): String? {
+        val a = ledger.account(accountId) ?: return "No trading account."
+        val st = a.standing
+        val worth = try { netWorth(a) } catch (_: ArithmeticException) { return "Account can't be valued right now." }
+        return when (action) {
+            EconomyAction.Claim -> {
+                if (worth >= EconomyRules.CLAIM_BELOW) return "Claims are for net worth below ${Ledger.money(EconomyRules.CLAIM_BELOW)}."
+                st.lastClaimAt?.let { last ->
+                    if (at - last < EconomyRules.CLAIM_INTERVAL_MS) return "You can claim again after ${java.time.Instant.ofEpochMilli(last + EconomyRules.CLAIM_INTERVAL_MS)}."
+                }
+                a.cash = Math.addExact(a.cash, EconomyRules.CLAIM_AMOUNT)
+                st.lastClaimAt = at
+                marketEvents += AccountEvent(a.id, AccountEvent.Kind.CLAIMED, "Weekly claim: +${Ledger.money(EconomyRules.CLAIM_AMOUNT)}", EconomyRules.CLAIM_AMOUNT, key)
+                null
+            }
+            EconomyAction.Reset -> {
+                if (at < st.nextResetAt) return "Your next reset is available after ${java.time.Instant.ofEpochMilli(st.nextResetAt)}."
+                val debt = maxOf(0L, -worth)
+                val recent = st.resets.count { it.inDebt && at - it.at <= 180 * EconomyRules.DAY_MS }
+                val days = EconomyRules.resetCooldownDays(debt, recent)
+                st.resets += ResetRecord(at, debt > 0)
+                st.resets.removeIf { at - it.at > 365 * EconomyRules.DAY_MS }
+                st.nextResetAt = at + (days * EconomyRules.DAY_MS).toLong()
+                val cash = startingCash(a)
+                wipe(a, cash, at)
+                marketEvents += AccountEvent(a.id, AccountEvent.Kind.RESET,
+                    "Account reset to ${Ledger.money(cash)}${if (debt > 0) " (debt of ${Ledger.money(debt)} wiped)" else ""}. Next reset in ${"%.0f".format(days)} days.", -debt, key)
+                null
+            }
+            EconomyAction.Bankrupt -> {
+                if (worth >= 0) return "Bankruptcy is only for players with negative net worth."
+                bankrupt(a, at, forced = false, key = key)
+                null
+            }
+            EconomyAction.Upgrade -> {
+                if (st.cashLevel >= EconomyRules.MAX_LEVEL) return "Maximum level reached."
+                val cost = EconomyRules.upgradeCost(st.cashLevel + 1)
+                pay(a, cost)?.let { return it }
+                st.cashLevel++
+                marketEvents += AccountEvent(a.id, AccountEvent.Kind.UPGRADED,
+                    "Starting cash upgraded to ${Ledger.money(startingCash(a))} (level ${st.cashLevel})", -cost, key)
+                null
+            }
+            EconomyAction.ClearBadge -> {
+                if (st.shame == 0) return "You have no badges of shame."
+                if (st.eternal) return "Eternal Shame: badges can no longer be cleared."
+                val cost = EconomyRules.clearCost(st.shame)
+                pay(a, cost)?.let { return it }
+                st.shame--
+                marketEvents += AccountEvent(a.id, AccountEvent.Kind.BADGE_CLEARED, "Badge of shame cleared (${st.shame} left)", -cost, key)
+                null
+            }
+            is EconomyAction.BuyBond -> {
+                val o = bondOfferings.firstOrNull { it.id == action.offeringId } ?: return "Unknown bond offering."
+                if (day !in o.openDay..o.closeDay) return "This offering is not open for subscriptions."
+                if (action.amount <= 0) return "Amount must be positive."
+                val held = a.bonds.filter { it.offeringId == o.id }.sumOf { it.principal }
+                if (held + action.amount > o.capPerPlayer) return "Limit is ${Ledger.money(o.capPerPlayer)} per player (you hold ${Ledger.money(held)})."
+                pay(a, action.amount)?.let { return it }
+                val payout = (action.amount * (1 + o.returnRate)).roundToLong()
+                a.bonds += BondHolding(o.id, action.amount, payout, o.maturityDay)
+                marketEvents += AccountEvent(a.id, AccountEvent.Kind.BOND_BOUGHT,
+                    "Bought ${Ledger.money(action.amount)} of ${o.name}; pays ${Ledger.money(payout)} at maturity", -action.amount, key)
+                null
+            }
+        }
+    }
+
+    /** Pays [cost] from cash; it must be covered by both cash and available equity. */
+    private fun pay(a: stonks.engine.trading.Account, cost: Cents): String? {
+        val f = ledger.figures(a, prices)
+        if (a.cash < cost || f.buyingPowerEquity < cost) return "Not enough cash: this costs ${Ledger.money(cost)}."
+        a.cash -= cost
+        return null
+    }
+
+    private fun bankrupt(a: stonks.engine.trading.Account, at: Long, forced: Boolean, key: String) {
+        val st = a.standing
+        val worth = try { netWorth(a) } catch (_: ArithmeticException) { 0L }
+        st.cashLevel = maxOf(0, st.cashLevel - 1)
+        st.shame++
+        st.shameEver++
+        st.bankruptcies++
+        if (st.shame >= EconomyRules.ETERNAL_SHAME) st.eternal = true
+        val cash = startingCash(a)
+        wipe(a, cash, at)
+        val how = if (forced) "Game over: net worth hit ${Ledger.money(worth)}." else "You declared bankruptcy."
+        marketEvents += AccountEvent(a.id, AccountEvent.Kind.BANKRUPT,
+            "$how Fresh start with ${Ledger.money(cash)}; +1 badge of shame (${st.shame} outstanding).", worth, key)
+    }
+
+    /** Fresh start: orders, positions, bonds and debt are gone; plan back to Rookie. */
+    private fun wipe(a: stonks.engine.trading.Account, cash: Cents, at: Long) {
+        tickers.values.forEach { it.playerOrders.cancelEverything(a.id, "Cancelled: account reset") }
+        for ((t, p) in a.positions) {
+            if (p.quantity < 0) ledger.shortInterest.merge(t, p.quantity) { x, y -> (x + y).takeIf { it > 0 } }
+        }
+        a.positions.clear()
+        a.reservations.clear()
+        a.bonds.clear()
+        a.watches.clear()
+        a.cash = cash
+        a.plan = Plan.ROOKIE
+        a.lifetimeRealized = 0
+        a.totalCommissions = 0
+        a.totalInterest = 0
+        a.standing.runStartCash = cash
+        a.standing.runStartedAt = at
+        a.standing.runStartDay = day
+        dividendsDue.removeIf { it.accountId == a.id }
+    }
+
+    /** Forced bankruptcy (game over) at net worth <= -10 x starting cash. */
+    private fun checkGameOver(everyone: Boolean = false) {
+        if (ledger.accounts.isEmpty()) return
+        for (a in ledger.accounts.values.sortedBy { it.id }) {
+            if (!everyone && a.positions.isEmpty() && a.cash >= 0) continue
+            val worth = try { netWorth(a) } catch (_: ArithmeticException) { continue }
+            if (worth > -EconomyRules.GAME_OVER_MULTIPLE * startingCash(a)) continue
+            val at = nowMillis()
+            bankrupt(a, at, forced = true, key = "gameover:${a.id}:$day:${if (current != null) tick else -2}")
+        }
+    }
+
+    /** Net-worth milestones (2x, 10x, 100x the run's starting cash), each awarded once ever. */
+    private fun checkMilestones() {
+        for (a in ledger.accounts.values) {
+            val worth = try { netWorth(a) } catch (_: ArithmeticException) { continue }
+            for ((multiple, name) in EconomyRules.MILESTONES) {
+                if (name in a.standing.awarded || worth < multiple * a.standing.runStartCash) continue
+                a.standing.awarded += name
+                marketEvents += AccountEvent(a.id, AccountEvent.Kind.ACHIEVEMENT, name, key = "ms:${a.id}:$name")
+            }
+        }
+    }
+
+    /** Tracks long positions' price extremes and awards Midas' / Sadim's Hands on exit. */
+    private fun watchPosition(a: stonks.engine.trading.Account, ticker: String, before: Pair<Long, Double>?, price: Cents) {
+        val qtyBefore = before?.first ?: 0L
+        val qtyAfter = a.quantity(ticker)
+        val t = tickers[ticker]
+        when {
+            qtyBefore <= 0 && qtyAfter > 0 -> a.watches[ticker] = PositionWatch(day, price, price)
+            qtyBefore > 0 && qtyAfter > 0 -> a.watches[ticker]?.let { w -> w.low = minOf(w.low, price); w.high = maxOf(w.high, price) }
+            qtyBefore > 0 -> {
+                val w = a.watches.remove(ticker) ?: return
+                if (day <= w.openDay) return
+                val low = minOf(w.low, t?.dayLow ?: w.low, price).toDouble()
+                val high = maxOf(w.high, t?.dayHigh ?: w.high, price).toDouble()
+                val avg = before!!.second
+                val name = when {
+                    avg <= low * 1.02 && price >= high * 0.98 && price >= avg * 1.2 -> "MIDAS_HANDS"
+                    avg >= high * 0.98 && price <= low * 1.02 && price <= avg * 0.8 -> "SADIMS_HANDS"
+                    else -> return
+                }
+                marketEvents += AccountEvent(a.id, AccountEvent.Kind.ACHIEVEMENT, name, key = "ach:${a.id}:$name:$day:$tick:$ticker")
+            }
+        }
+    }
+
+    private fun updateWatches() {
+        for (a in ledger.accounts.values) for ((ticker, w) in a.watches) {
+            val t = tickers[ticker] ?: continue
+            t.dayLow?.let { w.low = minOf(w.low, it) }
+            t.dayHigh?.let { w.high = maxOf(w.high, it) }
+        }
+    }
+
+    /**
+     * Issues a bond offering (admin): open for [windowDays] game days, maturing
+     * [termDays] after the window closes. Returns it.
+     */
+    fun issueBonds(name: String, returnRate: Double, windowDays: Int, termDays: Int, capPerPlayer: Cents): BondOffering {
+        require(returnRate in 0.0..1.0 && windowDays in 1..60 && termDays in 1..400 && capPerPlayer in 1..1_000_000_00L) { "invalid offering" }
+        val start = day
+        val o = BondOffering(nextBondId++, name, returnRate, start, start + windowDays - 1, start + windowDays - 1 + termDays, capPerPlayer)
+        bondOfferings += o
+        marketNews += NewsDraft(day, if (current != null) tick else -1, null, null, NewsCategory.MACRO,
+            "Treasury opens the $name: +${"%.0f".format(returnRate * 100)}% at maturity, up to ${Ledger.money(capPerPlayer)} per investor, subscriptions for $windowDays sessions")
+        return o
+    }
+
+    private fun matureBonds() {
+        for (a in ledger.accounts.values.sortedBy { it.id }) {
+            val due = a.bonds.filter { it.maturityDay <= day }
+            if (due.isEmpty()) continue
+            a.bonds.removeAll(due.toSet())
+            for (b in due) {
+                a.cash = Math.addExact(a.cash, b.payout)
+                marketEvents += AccountEvent(a.id, AccountEvent.Kind.BOND_MATURED,
+                    "Bond matured: ${Ledger.money(b.payout)} paid (${Ledger.money(b.payout - b.principal)} interest)", b.payout, "bond:${a.id}:${b.offeringId}:$day")
+            }
+        }
+        bondOfferings.removeIf { it.maturityDay < day - 60 }
     }
 
     // ---- Central bank ------------------------------------------------------------
@@ -495,6 +723,7 @@ class Market private constructor(
     fun step(): List<TickReport> {
         val reports = tickers.values.map { it.step() }
         checkMargins()
+        checkGameOver()
         if (tickers.values.any { it.corp.news.isNotEmpty() }) collectNews()
         return reports
     }
@@ -565,10 +794,13 @@ class Market private constructor(
         indexClose = indexValue
         tickers.values.forEach { it.endSession() }
         val plans = ledger.accounts.values.associate { it.id to it.plan }
+        updateWatches()
         ledger.accrueDaily(prices, benchmarkRate, ::borrowRate)
         ledger.accounts.values.filter { it.plan != plans[it.id] }
             .forEach { marketEvents += AccountEvent(it.id, AccountEvent.Kind.PLAN_LOST, it.plan.name) }
         lastSessionClose = s.close
+        checkGameOver(everyone = true)
+        checkMilestones()
         sessionsCompleted++
         current = null
         collectNews()
@@ -606,6 +838,12 @@ class Market private constructor(
         out.writeList(usedTickers.sorted()) { writeUTF(it) }
         out.writeLong(nextListingSerial)
         out.writeDouble(indexClose)
+        // v4: bond offerings.
+        out.writeList(bondOfferings) {
+            writeLong(it.id); writeUTF(it.name); writeDouble(it.returnRate); writeInt(it.openDay); writeInt(it.closeDay)
+            writeInt(it.maturityDay); writeLong(it.capPerPlayer)
+        }
+        out.writeLong(nextBondId)
         out.flush()
     }
 
@@ -659,7 +897,7 @@ class Market private constructor(
                 it.sessionsCompleted = completed
                 it.lastSessionClose = lastClose
                 if (version >= 2) {
-                    it.ledger.readFrom(input)
+                    it.ledger.readFrom(input, version)
                     it.nextLiquidationId = input.readLong()
                     it.lastInputSeq = input.readLong()
                 } else {
@@ -676,6 +914,12 @@ class Market private constructor(
                     it.usedTickers += input.readList { readUTF() }
                     it.nextListingSerial = input.readLong()
                     it.indexClose = input.readDouble()
+                    if (version >= 4) {
+                        it.bondOfferings += input.readList {
+                            BondOffering(readLong(), readUTF(), readDouble(), readInt(), readInt(), readInt(), readLong())
+                        }
+                        it.nextBondId = input.readLong()
+                    }
                 } else {
                     // Continue the old index (average of price relative to IPO price).
                     val rel = tickers.mapNotNull { t -> t.previousClose?.let { p -> p.toDouble() / t.company.initialPrice } }

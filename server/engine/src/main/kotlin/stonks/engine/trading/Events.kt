@@ -42,6 +42,19 @@ data class FillEvent(
     val tick: Int,
 ) : EngineEvent
 
-data class AccountEvent(override val accountId: Long, val kind: Kind, val detail: String) : EngineEvent {
-    enum class Kind { OPENED, PLAN_UPGRADED, PLAN_LOST, MARGIN_CALL, DIVIDEND, SPLIT, DELISTED }
+/**
+ * An account-level event. [key], when set, is a deterministic id (stable across
+ * replays) for events the app records exactly once: economy actions, achievements.
+ */
+data class AccountEvent(
+    override val accountId: Long,
+    val kind: Kind,
+    val detail: String,
+    val amount: Cents = 0,
+    val key: String? = null,
+) : EngineEvent {
+    enum class Kind {
+        OPENED, PLAN_UPGRADED, PLAN_LOST, MARGIN_CALL, DIVIDEND, SPLIT, DELISTED,
+        CLAIMED, RESET, BANKRUPT, UPGRADED, BADGE_CLEARED, BOND_BOUGHT, BOND_MATURED, ACHIEVEMENT,
+    }
 }

@@ -10,7 +10,7 @@ import java.io.DataOutputStream
  */
 object Snapshot {
     const val MAGIC = 0x53544E4B // "STNK"
-    const val VERSION = 3
+    const val VERSION = 4
     /** Oldest version still readable (v1 predates trading state). */
     const val MIN_VERSION = 1
 }
