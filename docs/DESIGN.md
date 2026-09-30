@@ -151,6 +151,19 @@ A strategy defines a company's drift, volatility and EPS growth profile.
   **market regimes** (bull, bear, crash, bubble) scale drift/vol across many
   stocks at once.
 
+## Dividends
+
+- **About 25% of companies pay dividends.** Dividend Aristocrats always pay;
+  Steady growth / Stagnant companies sometimes; Parabolic, Volatile and Death
+  spiral companies never.
+- **Yield 1–5% per year**, set per company. Aristocrats raise it regularly;
+  struggling companies cut or suspend it (news events).
+- **Paid once per "quarter"**, tied to the company's earnings cycle (~every 4
+  real weeks): announced with earnings, **ex-date** a few game days later, cash
+  paid to holders as of the ex-date on the **pay date**. Shorts pay it.
+- The price **drops by the dividend at the ex-date open**, so dividend capture
+  isn't free money.
+
 ## Central bank
 
 - The **benchmark rate** (default 4%, range **0–10%**) drives margin interest
