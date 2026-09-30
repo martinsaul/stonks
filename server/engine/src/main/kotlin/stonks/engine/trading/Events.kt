@@ -43,5 +43,5 @@ data class FillEvent(
 ) : EngineEvent
 
 data class AccountEvent(override val accountId: Long, val kind: Kind, val detail: String) : EngineEvent {
-    enum class Kind { OPENED, PLAN_UPGRADED, PLAN_LOST, MARGIN_CALL }
+    enum class Kind { OPENED, PLAN_UPGRADED, PLAN_LOST, MARGIN_CALL, DIVIDEND, SPLIT, DELISTED }
 }

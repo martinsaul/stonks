@@ -176,6 +176,54 @@ class Ledger {
     }
 
     /**
+     * Closes [a]'s whole position in [ticker] at [price] with no commission (delisting:
+     * a cash-out, or 0 for bankruptcy). Returns the realized profit.
+     */
+    fun closeOut(a: Account, ticker: String, price: Cents): Cents {
+        val p = a.positions[ticker] ?: return 0
+        val value = Math.multiplyExact(p.quantity, price) // negative for shorts
+        val realized = if (p.quantity > 0) value - p.costBasis else p.costBasis + value
+        a.cash = Math.addExact(a.cash, value)
+        a.positions.remove(ticker)
+        a.lifetimeRealized += realized
+        val unlocked = Plan.forProfit(a.lifetimeRealized)
+        if (unlocked.ordinal > a.plan.ordinal) a.plan = unlocked
+        return realized
+    }
+
+    /**
+     * A split of [ratio] new shares per old share. Fractional shares left over (reverse
+     * splits) are settled in cash at [newPrice]. Returns accountId to its new quantity.
+     */
+    fun split(ticker: String, ratio: Double, newPrice: Cents): Map<Long, Long> {
+        val changed = HashMap<Long, Long>()
+        for (a in accounts.values) {
+            val p = a.positions[ticker] ?: continue
+            val exact = abs(p.quantity) * ratio
+            val whole = kotlin.math.floor(exact + 1e-9).toLong()
+            val fraction = (exact - whole).coerceAtLeast(0.0)
+            val inLieu = (fraction * newPrice).roundToLong()
+            val basisOut = (p.costBasis * (fraction / exact)).roundToLong()
+            val sign = if (p.quantity > 0) 1 else -1
+            a.cash = Math.addExact(a.cash, sign * inLieu)
+            a.lifetimeRealized += sign * (inLieu - basisOut)
+            p.costBasis -= basisOut
+            p.quantity = sign * whole
+            if (whole == 0L) a.positions.remove(ticker)
+            changed[a.id] = p.quantity
+        }
+        val short = accounts.values.sumOf { maxOf(0, -(it.positions[ticker]?.quantity ?: 0)) }
+        if (short == 0L) shortInterest.remove(ticker) else shortInterest[ticker] = short
+        return changed
+    }
+
+    /** Credits (longs) or charges (shorts) [amount] cents. Returns the cash moved. */
+    fun payDividend(a: Account, amount: Cents): Cents {
+        a.cash = Math.addExact(a.cash, amount)
+        return amount
+    }
+
+    /**
      * Daily charges: margin interest on borrowed cash and borrow fees on shorts.
      * [borrowRate] gives each ticker's annualized borrow fee.
      */

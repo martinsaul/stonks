@@ -20,6 +20,8 @@ import stonks.engine.snapshot.writeList
 import stonks.engine.snapshot.writeNullableLong
 import stonks.engine.strategy.StrategyEngine
 import stonks.engine.trading.PlayerOrders
+import stonks.engine.world.Corporate
+import stonks.engine.world.Crowd
 import java.io.DataInputStream
 import java.io.DataOutputStream
 import kotlin.math.exp
@@ -52,6 +54,8 @@ class TickerSim(
     val company: Company,
     private val config: MarketConfig,
     seed: Long,
+    /** Game day of listing (IPOs list after day 0). */
+    listedDay: Int = 0,
 ) {
     private var rng = Rng(seed)
     val book = OrderBook()
@@ -59,8 +63,19 @@ class TickerSim(
     val candles = CandleAggregator(company.ticker, config.retention)
     val playerOrders = PlayerOrders(company.ticker, book)
 
+    /** Fundamentals, dividends, news and lifecycle (its own random stream). */
+    var corp = Corporate(
+        company.ticker, company.name, company.sector, company.sharesOutstanding, company.initialPrice,
+        company.initialStrategy.type, Rng(Rng.derive(seed, 3)), firstDay = listedDay,
+    )
+        private set
+
+    /** Copycats and inversecats (their own random stream). */
+    var crowd = Crowd(Rng(Rng.derive(seed, 2)))
+        private set
+
     /** Index of the current (or next) session: the game day. */
-    var day = 0
+    var day = listedDay
         private set
 
     /** Reference price in cents (fractional; the book quotes whole cents). */
@@ -103,7 +118,28 @@ class TickerSim(
         this.day = day
     }
     private val regimeDrift: Double get() = regime.driftAdd * company.marketBeta
-    val marketCap: Double get() = reference / 100.0 * company.sharesOutstanding
+    val marketCap: Double get() = reference / 100.0 * corp.shares
+
+    init {
+        strategy.onComplete = { if (it.leadsToDistress) corp.enterDistress(day) }
+    }
+
+    /**
+     * Applies a stock split announced by [corp] (ratio = new shares per old share). The
+     * market adjusts accounts and cancels orders first; the market must be closed.
+     */
+    fun applySplit() {
+        check(session == null) { "splits apply before the open" }
+        val r = corp.splitRatio
+        reference /= r
+        last = maxOf(1L, (last / r).roundToLong())
+        previousClose = previousClose?.let { maxOf(1L, (it / r).roundToLong()) }
+        corp.applySplit(day)
+        crowd.endSession()
+        // Anything still resting was priced in old shares.
+        book.cancelWhere { true }
+        pending.clear()
+    }
 
     /**
      * Queues an externally submitted (player) order. It is matched on the next tick, or
@@ -117,7 +153,15 @@ class TickerSim(
     fun cancel(orderId: Long): Order? =
         book.cancel(orderId) ?: pending.firstOrNull { it.id == orderId }?.also { pending.remove(it) }
 
-    fun beginSession(session: Session, factors: SessionFactors, regime: MarketRegime, gapDays: Double, day: Int = this.day): List<Fill> {
+    fun beginSession(
+        session: Session,
+        factors: SessionFactors,
+        regime: MarketRegime,
+        gapDays: Double,
+        day: Int = this.day,
+        /** Market-wide pre-market move (rate decisions, sector news), log return. */
+        extraGap: Double = 0.0,
+    ): List<Fill> {
         check(this.session == null) { "session already open" }
         this.session = session
         this.day = day
@@ -133,7 +177,11 @@ class TickerSim(
         val dtGap = gapDays / 252.0
         val common = company.marketBeta * config.marketFactorVol * sqrt(dtGap) * factors.gapMarket +
             company.sectorBeta * config.sectorFactorVol * sqrt(dtGap) * factors.gapSector.getValue(company.sector)
-        reference *= exp(strategy.gapReturn(gapDays, vm, rng.gaussian()) + common * vm)
+        val curveGap = strategy.gapReturn(gapDays, vm, rng.gaussian()) + common * vm
+        corp.onCurve(curveGap + extraGap)
+        val news = corp.preMarket(day, session.kind == stonks.engine.clock.SessionKind.WEEKEND, reference, strategy, session.ticks)
+        if (news != 0.0) crowd.onNews(news)
+        reference *= exp(curveGap + extraGap + news)
 
         // Without an auction the market opens at the gapped level; bars before the first
         // trade must not carry yesterday's close (that would draw a false opening wick).
@@ -192,6 +240,12 @@ class TickerSim(
         val common = (company.marketBeta * config.marketFactorVol * f.market[tick] +
             company.sectorBeta * config.sectorFactorVol * f.sector.getValue(company.sector)[tick]) * sqrt(dt) * vm
         reference *= exp(idio + common)
+        corp.onCurve(idio + common)
+        val news = corp.jumpAt(day, tick, reference, strategy)
+        if (news != 0.0) {
+            reference *= exp(news)
+            crowd.onNews(news)
+        }
 
         // 2. Market makers re-quote around the reference (possibly filling resting player orders).
         playerOrders.at(day, tick)
@@ -202,8 +256,16 @@ class TickerSim(
         val bidBefore = book.bestBid
         val askBefore = book.bestAsk
 
-        // 3. Player orders due this tick (settled as they fill), raw orders, then background flow.
+        // 3. Player orders due this tick (settled as they fill), the crowd reacting to
+        //    earlier player trades, raw orders, then background flow.
+        val playerStart = fills.size
         playerOrders.execute(day, tick, fills)
+        reactToPlayers(fills.subList(playerStart, fills.size))
+        val crowdStart = fills.size
+        for (o in crowd.due(day, tick)) {
+            fills += book.submit(Order(nextNpcOrderId--, TraderId.BACKGROUND, o.side, OrderType.MARKET, o.quantity))
+        }
+        playerOrders.onFills(fills.subList(crowdStart, fills.size))
         for (o in pending) fills += book.submit(o)
         pending.clear()
         val bgStart = fills.size
@@ -224,6 +286,7 @@ class TickerSim(
         val time = s.tickTime(tick)
         candles.onTick(time, s.open, fills, last)
         playerOrders.afterTick(day, tick, last, fills.sumOf { it.quantity })
+        crowd.afterTick()
         val report = TickReport(company.ticker, tick, fills, last, book.bestBid, book.bestAsk)
         tick++
         return report
@@ -253,9 +316,23 @@ class TickerSim(
         }
     }
 
+    /** Player trades (not liquidations) may draw a crowd. */
+    private fun reactToPlayers(fills: List<Fill>) {
+        if (fills.isEmpty()) return
+        val depth = marketCap * config.liquidityFraction * 100 * config.makerLevels
+        for ((orderId, group) in fills.filter { it.takerTrader.kind == stonks.engine.core.TraderKind.PLAYER }.groupBy { it.takerOrderId }) {
+            if (orderId >= Market.LIQUIDATION_ID_BASE) continue
+            val f = group.first()
+            val (fame, shame) = playerOrders.gateway.reputation(f.takerTrader.id)
+            crowd.onPlayerTrade(day, tick, f.takerSide, group.sumOf { it.quantity }, f.price, depth, fame, shame)
+        }
+    }
+
     fun endSession() {
         checkNotNull(session) { "market closed" }
         playerOrders.endSession(day)
+        corp.endSession(day, last)
+        crowd.endSession()
         day++
         previousClose = last
         book.clearMakerLadders()
@@ -325,6 +402,8 @@ class TickerSim(
         out.writeList(pending) { writeOrder(it) }
         out.writeInt(day)
         playerOrders.writeTo(out)
+        corp.writeTo(out)
+        crowd.writeTo(out)
     }
 
     internal fun restore(input: DataInputStream, version: Int) {
@@ -341,12 +420,27 @@ class TickerSim(
             day = input.readInt()
             playerOrders.readFrom(input)
         }
+        if (version >= 3) {
+            corp.readFrom(input)
+            crowd.readFrom(input)
+        } else {
+            // Older worlds: start corporate life now, from today's price.
+            corp = Corporate(
+                company.ticker, company.name, company.sector, company.sharesOutstanding, last,
+                strategy.current.type, Rng(Rng.derive(seedForUpgrade, 3)), firstDay = day,
+            )
+        }
     }
+
+    private var seedForUpgrade = seed
 
     companion object {
         /** Reads a ticker written by [writeTo]. */
-        fun readFrom(input: DataInputStream, config: MarketConfig, version: Int): TickerSim =
-            TickerSim(Company.readFrom(input), config, seed = 0).also { it.restore(input, version) }
+        fun readFrom(input: DataInputStream, config: MarketConfig, version: Int, marketSeed: Long = 0): TickerSim {
+            val company = Company.readFrom(input)
+            return TickerSim(company, config, seed = Rng.derive(marketSeed, company.ticker.hashCode().toLong()))
+                .also { it.restore(input, version) }
+        }
 
         private fun DataOutputStream.writeOrder(o: Order) {
             writeLong(o.id)

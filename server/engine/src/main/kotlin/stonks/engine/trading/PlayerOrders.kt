@@ -34,6 +34,9 @@ interface PlayerGateway {
     /** Re-sizes or releases the leg's buying-power reservation. */
     fun reserve(leg: Leg, qty: Long, price: Cents)
     fun release(leg: Leg)
+
+    /** (fame, shame), each 0..1: how the crowd reacts to this player. */
+    fun reputation(accountId: Long): Pair<Double, Double> = 0.0 to 0.0
 }
 
 /**

@@ -205,6 +205,9 @@ class TradingDesk(
                     AccountEvent.Kind.MARGIN_CALL -> notice(e.accountId, "margin_call", "Margin call: ${e.detail}", at)
                     AccountEvent.Kind.PLAN_UPGRADED -> notice(e.accountId, "plan", "Plan upgraded to ${e.detail.lowercase().replaceFirstChar { it.uppercase() }}!", at)
                     AccountEvent.Kind.PLAN_LOST -> notice(e.accountId, "plan", "Net worth hit zero: plan reset to Rookie", at)
+                    AccountEvent.Kind.DIVIDEND -> notice(e.accountId, "dividend", e.detail, at)
+                    AccountEvent.Kind.SPLIT -> notice(e.accountId, "split", e.detail, at)
+                    AccountEvent.Kind.DELISTED -> notice(e.accountId, "delisted", e.detail, at)
                     AccountEvent.Kind.OPENED -> {}
                 }
             }
